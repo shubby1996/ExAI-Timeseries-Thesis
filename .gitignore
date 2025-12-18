@@ -1,0 +1,29 @@
+# venv
+.venv/
+venv/
+.env/
+models/
+Archive/
+__pycache__/
+
+# training logs / checkpoints
+darts_logs/
+lightning_logs/
+**/darts_logs/
+**/checkpoints/
+*.ckpt
+*.pt.ckpt
+
+# (optional) large model weights
+models/*.pt
+models/*.pth
+models/*.ckpt
+models/*.pt.ckpt
+
+**/*.ipynb
+
+# for the .csv files in data folde
+/*.csv
+
+# # for the .csv anywhere
+# **/*.csv
