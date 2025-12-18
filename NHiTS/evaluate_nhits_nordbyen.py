@@ -248,8 +248,8 @@ if __name__ == "__main__":
     # Use relative path to data directory (parent of this script)
     DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     CSV_PATH = os.path.join(DATA_DIR, "nordbyen_features_engineered.csv")
-    MODEL_PATH = os.path.join(DATA_DIR, "models", "nhits_nordbyen.pt")
-    PREP_STATE_PATH = os.path.join(DATA_DIR, "models", "nhits_nordbyen_preprocessing_state.pkl")
+    MODEL_PATH = os.path.join(DATA_DIR, "models", "nhits_probabilistic_q.pt")
+    PREP_STATE_PATH = os.path.join(DATA_DIR, "models", "nhits_probabilistic_q_preprocessing_state.pkl")
     
     # Same splits used in training
     TRAIN_END = "2018-12-31 23:00:00+00:00"
