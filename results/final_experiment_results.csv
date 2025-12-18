@@ -1,0 +1,4 @@
+Model,Type,MAE,Coverage,Width
+NHiTS (Det),Deterministic,0.0693437180549863,0.0,0.0
+TCN (Det),Deterministic,0.04473404914203605,0.0,0.0
+NHiTS (Prob),Probabilistic,0.06512818747820319,0.0,0.0
