@@ -2,7 +2,7 @@
 
 **Date**: December 11, 2025  
 **Models Evaluated**: TFT vs NHiTS  
-**Full Report**: [model_comparison.md](file:///c:/Uni%20Stuff/Semester%205/Thesis_SI/ShubhamThesis/data/docs/model_comparison.md)
+**Full Report**: [model_comparison.md]({WORKDIR}/docs/model_comparison.md)
 
 ---
 
@@ -70,7 +70,7 @@ TFT outperforms NHiTS across **all evaluation metrics**.
 - No visible confidence intervals
 - Wider error distribution with longer tails
 
-**See full report for detailed visualizations**: [model_comparison.md](file:///c:/Uni%20Stuff/Semester%205/Thesis_SI/ShubhamThesis/data/docs/model_comparison.md)
+**See full report for detailed visualizations**: [model_comparison.md]({WORKDIR}/docs/model_comparison.md)
 
 ---
 
@@ -86,4 +86,4 @@ Both models meet industry standards, but **TFT's uncertainty quantification capa
 
 ---
 
-**Next Steps**: See [task.md](file:///c:/Uni%20Stuff/Semester%205/Thesis_SI/ShubhamThesis/data/docs/task.md) for upcoming work including TCN debugging and thesis writing.
+**Next Steps**: See [task.md]({WORKDIR}/docs/task.md) for upcoming work including TCN debugging and thesis writing.
