@@ -117,7 +117,7 @@ Quantile loss combines accuracy and uncertainty calibration.
 ### 3.1 TFT Performance
 
 #### Actual vs Predicted
-![TFT Actual vs Predicted](file:///c:/Uni%20Stuff/Semester%205/Thesis_SI/ShubhamThesis/data/results/plot_actual_vs_predicted.png)
+![TFT Actual vs Predicted]({WORKDIR}/results/plot_actual_vs_predicted.png)
 
 **Key Observations**:
 - TFT predictions closely track actual consumption patterns
@@ -125,7 +125,7 @@ Quantile loss combines accuracy and uncertainty calibration.
 - Model handles both peak and low-demand periods well
 
 #### Daily Pattern Analysis
-![TFT Daily Pattern](file:///c:/Uni%20Stuff/Semester%205/Thesis_SI/ShubhamThesis/data/results/plot_daily_pattern.png)
+![TFT Daily Pattern]({WORKDIR}/results/plot_daily_pattern.png)
 
 **Key Observations**:
 - Clear diurnal pattern in heat consumption
@@ -133,7 +133,7 @@ Quantile loss combines accuracy and uncertainty calibration.
 - Minimal systematic bias across different hours of the day
 
 #### Error Distribution
-![TFT Error Distribution](file:///c:/Uni%20Stuff/Semester%205/Thesis_SI/ShubhamThesis/data/results/plot_error_distribution.png)
+![TFT Error Distribution]({WORKDIR}/results/plot_error_distribution.png)
 
 **Key Observations**:
 - Errors are approximately normally distributed (good sign)
@@ -141,7 +141,7 @@ Quantile loss combines accuracy and uncertainty calibration.
 - Most errors fall within ±0.5 MW range
 
 #### Error Over Time
-![TFT Error Over Time](file:///c:/Uni%20Stuff/Semester%205/Thesis_SI/ShubhamThesis/data/results/plot_error_over_time.png)
+![TFT Error Over Time]({WORKDIR}/results/plot_error_over_time.png)
 
 **Key Observations**:
 - No clear temporal trend in errors (model is stable)
@@ -149,7 +149,7 @@ Quantile loss combines accuracy and uncertainty calibration.
 - No degradation in performance over time
 
 #### Scatter Plot
-![TFT Scatter](file:///c:/Uni%20Stuff/Semester%205/Thesis_SI/ShubhamThesis/data/results/plot_scatter.png)
+![TFT Scatter]({WORKDIR}/results/plot_scatter.png)
 
 **Key Observations**:
 - Strong linear relationship between predicted and actual values
@@ -161,7 +161,7 @@ Quantile loss combines accuracy and uncertainty calibration.
 ### 3.2 NHiTS Performance
 
 #### Actual vs Predicted
-![NHiTS Actual vs Predicted](file:///c:/Uni%20Stuff/Semester%205/Thesis_SI/ShubhamThesis/data/results/nhits_plot_actual_vs_predicted.png)
+![NHiTS Actual vs Predicted]({WORKDIR}/results/nhits_plot_actual_vs_predicted.png)
 
 **Key Observations**:
 - NHiTS also tracks the general consumption patterns
@@ -169,14 +169,14 @@ Quantile loss combines accuracy and uncertainty calibration.
 - Slightly more deviation from actual values compared to TFT
 
 #### Daily Pattern Analysis
-![NHiTS Daily Pattern](file:///c:/Uni%20Stuff/Semester%205/Thesis_SI/ShubhamThesis/data/results/nhits_plot_daily_pattern.png)
+![NHiTS Daily Pattern]({WORKDIR}/results/nhits_plot_daily_pattern.png)
 
 **Key Observations**:
 - Captures the daily cycle but with more variability
 - Peak predictions show more scatter than TFT
 
 #### Error Distribution
-![NHiTS Error Distribution](file:///c:/Uni%20Stuff/Semester%205/Thesis_SI/ShubhamThesis/data/results/nhits_plot_error_distribution.png)
+![NHiTS Error Distribution]({WORKDIR}/results/nhits_plot_error_distribution.png)
 
 **Key Observations**:
 - Wider error distribution than TFT
@@ -184,7 +184,7 @@ Quantile loss combines accuracy and uncertainty calibration.
 - More frequent large errors
 
 #### Error Over Time
-![NHiTS Error Over Time](file:///c:/Uni%20Stuff/Semester%205/Thesis_SI/ShubhamThesis/data/results/nhits_plot_error_over_time.png)
+![NHiTS Error Over Time]({WORKDIR}/results/nhits_plot_error_over_time.png)
 
 **Key Observations**:
 - Consistent error pattern over time
@@ -192,7 +192,7 @@ Quantile loss combines accuracy and uncertainty calibration.
 - No systematic drift
 
 #### Scatter Plot
-![NHiTS Scatter](file:///c:/Uni%20Stuff/Semester%205/Thesis_SI/ShubhamThesis/data/results/nhits_plot_scatter.png)
+![NHiTS Scatter]({WORKDIR}/results/nhits_plot_scatter.png)
 
 **Key Observations**:
 - More scatter around the perfect prediction line
