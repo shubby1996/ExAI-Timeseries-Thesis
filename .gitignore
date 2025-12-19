@@ -22,6 +22,10 @@ models/*.pt.ckpt
 
 **/*.ipynb
 
+**/*.err
+**/*.log
+
+
 # for the .csv files in data folde
 /*.csv
 

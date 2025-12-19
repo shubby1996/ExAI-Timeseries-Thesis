@@ -29,6 +29,21 @@ class ModelFeatureConfig:
     """
     Configuration describing how columns in the engineered CSV
     map to Model / Darts concepts.
+    
+    This dataclass defines the schema mapping: which CSV columns play which role.
+
+    time_col: column name for timestamps
+
+    target_col: what you’re predicting
+
+    past_covariates_cols: features you only know up to “now” (weather observed, lagged target, rolling stats, etc.)
+
+    future_covariates_cols: features you know for future timestamps (calendar, holidays)
+
+    static_covariates_cols: constant per-series features (unused here)
+
+    The important part: this is the semantic contract between CSV columns and the model.
+
     """
     time_col: str = "timestamp"
     target_col: str = "heat_consumption"
@@ -83,7 +98,7 @@ def default_feature_config() -> ModelFeatureConfig:
 
 def load_and_validate_features(
     csv_path: str,
-    cfg: ModelFeatureConfig | None = None,
+    cfg: Optional[ModelFeatureConfig] = None,
 ) -> pd.DataFrame:
     """
     Load nordbyen_features_engineered.csv and validate its schema.

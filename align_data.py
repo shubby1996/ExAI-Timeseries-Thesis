@@ -2,7 +2,7 @@ import pandas as pd
 import os
 
 # Define file paths
-DATA_DIR = r"c:\Uni Stuff\Semester 5\Thesis_SI\ShubhamThesis\data"
+DATA_DIR = "."
 HEAT_FILE = os.path.join(DATA_DIR, "dma_a_nordbyen_heat", "nordbyen_CombinedDataframe_SummedAveraged_withoutOutliers.csv")
 WEATHER_FILE = os.path.join(DATA_DIR, "weather", "Weather_Bronderslev_20152022.csv")
 OUTPUT_FILE = os.path.join(DATA_DIR, "nordbyen_heat_weather_aligned.csv")
