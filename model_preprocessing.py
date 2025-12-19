@@ -31,16 +31,11 @@ class ModelFeatureConfig:
     map to Model / Darts concepts.
     
     This dataclass defines the schema mapping: which CSV columns play which role.
-
-    time_col: column name for timestamps
-
-    target_col: what you’re predicting
-
-    past_covariates_cols: features you only know up to “now” (weather observed, lagged target, rolling stats, etc.)
-
-    future_covariates_cols: features you know for future timestamps (calendar, holidays)
-
-    static_covariates_cols: constant per-series features (unused here)
+        time_col: column name for timestamps
+        target_col: what you’re predicting
+        past_covariates_cols: features you only know up to “now” (weather observed, lagged target, rolling stats, etc.)
+        future_covariates_cols: features you know for future timestamps (calendar, holidays)
+        static_covariates_cols: constant per-series features (unused here)
 
     The important part: this is the semantic contract between CSV columns and the model.
 
@@ -59,6 +54,14 @@ class PreprocessingState:
     """
     Holds everything needed to consistently preprocess data
     for models at training and inference time.
+
+    This is the thing you must persist for inference. It stores:
+        the feature_config (so inference uses the same column roles)
+        fitted scalers:
+            target_scaler
+            past_covariates_scaler
+            future_covariates_scaler
+
     """
     feature_config: ModelFeatureConfig
     target_scaler: Optional[Scaler] = None
@@ -76,7 +79,13 @@ def default_feature_config() -> ModelFeatureConfig:
         Configuration with predefined feature roles:
         - Target: heat_consumption
         - Past covariates: weather features, lags, interactions
+            weather (temp, humidity, etc.)
+            lags (heat_lag_1h, heat_lag_24h)
+            rolling (heat_rolling_24h)
+            engineered interactions (temp_wind_interaction, etc.)
         - Future covariates: time features and holidays
+            calendar encodings (hour_sin, hour_cos, day_of_week, …)
+            holiday flags (is_public_holiday, is_school_holiday)
     """
     return ModelFeatureConfig(
         time_col="timestamp",
@@ -107,6 +116,13 @@ def load_and_validate_features(
     - Ensures that all required columns from cfg are present.
     - Sorts by time.
     - Checks for duplicate timestamps.
+
+    What it does:
+        Reads CSV and parses timestamp
+        Sorts by time and sets index to time
+        Checks duplicate timestamps
+        Checks that all required columns exist:
+            target + all covariates listed in config
 
     Parameters
     ----------
@@ -179,7 +195,12 @@ def split_by_time(
         Validation subset (excludes overlapping row with train).
     test_df : pd.DataFrame
         Test subset (excludes overlapping row with val).
-        
+    ======================================================
+    train_df = df.loc[:train_end]
+    val_df = df.loc[train_end:val_end].iloc[1:]
+    test_df = df.loc[val_end:].iloc[1:]
+    ======================================================
+    
     Raises
     ------
     ValueError
@@ -229,6 +250,14 @@ def build_timeseries_from_df(
     cfg : ModelFeatureConfig, optional
         Feature configuration. If None, uses default_feature_config().
     
+    =================================================
+    Important detail:
+    freq = 'H'
+    TimeSeries.from_dataframe(..., freq=freq)
+    This forces an hourly frequency assumption. That means:
+        - the model pipeline is treating the data as regular hourly data
+        - Darts can align covariates/target based on that frequency
+    =================================================
     Returns
     -------
     dict
@@ -301,6 +330,33 @@ def fit_and_scale_splits(
         Contains fitted scalers and the feature config.
     train_scaled, val_scaled, test_scaled : dict
         Same structure as input dicts, but with scaled TimeSeries.
+
+    =================================================================
+    Create scalers:
+        target_scaler = Scaler()
+        past_cov_scaler if past covariates exist
+        fut_cov_scaler if future covariates exist
+    Fit scalers only on training series
+    Transform train, val, test with those fitted scalers
+    Return PreprocessingState + scaled splits
+
+    Important:
+    Why “fit on train only” matters:
+        If you fit scalers on the full dataset, you leak future information into training:
+        the mean/std (or min/max) would include test period statistics
+        that typically makes validation/test performance look slightly better than reality
+    
+    So the “reasoning chain” is:
+        model must not access test distribution properties
+        scalers encode distribution properties
+        therefore scalers must be fit only on training
+    
+    What Darts Scaler() actually does:
+    In Darts, Scaler is a wrapper around a sklearn scaler (often StandardScaler) applied per component. 
+    Exact behavior can depend on Darts version, but conceptually:
+        - compute scaling parameters on the fit series
+        - apply same transform to other series, component-wise
+    =================================================================
     """
     if cfg is None:
         cfg = default_feature_config()
