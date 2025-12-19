@@ -3,7 +3,7 @@ import numpy as np
 import os
 
 # Define file paths
-DATA_DIR = r"c:\Uni Stuff\Semester 5\Thesis_SI\ShubhamThesis\data"
+DATA_DIR = "."
 INPUT_FILE = os.path.join(DATA_DIR, "nordbyen_heat_weather_aligned.csv")
 OUTPUT_FILE = os.path.join(DATA_DIR, "nordbyen_features_engineered.csv")
 

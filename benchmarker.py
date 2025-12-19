@@ -1,6 +1,7 @@
 import os
 import sys
 import pickle
+import json
 import numpy as np
 import pandas as pd
 from typing import Dict, List, Any, Tuple
@@ -52,7 +53,29 @@ class DartsAdapter(ModelAdapter):
         print(f"\n[{self.name}] Training...")
         cfg = mp.default_feature_config()
         self.state, t_sc, v_sc, _ = mp.prepare_model_data(csv_path, to_naive(train_end_str), to_naive(val_end_str), cfg)
-        cp = {"input_chunk_length": 168, "output_chunk_length": 24, "batch_size": 32, "n_epochs": self.config.get("n_epochs", 2), "random_state": 42, "force_reset": True, "likelihood": QuantileRegression(quantiles=[0.1, 0.5, 0.9])}
+        
+        # Default core params
+        cp = {
+            "input_chunk_length": 168,
+            "output_chunk_length": 24,
+            "batch_size": 32,
+            "n_epochs": self.config.get("n_epochs", 10),
+            "random_state": 42,
+            "force_reset": True,
+            "likelihood": QuantileRegression(quantiles=[0.1, 0.5, 0.9])
+        }
+        
+        # Override with HPO results if available
+        if "best_params" in self.config:
+            best = self.config["best_params"]
+            cp.update({
+                "num_stacks": best.get("num_stacks", 3),
+                "num_blocks": best.get("num_blocks", 1),
+                "num_layers": best.get("num_layers", 2),
+                "layer_widths": best.get("layer_widths", 512),
+                "dropout": best.get("dropout", 0.1),
+                "optimizer_kwargs": {"lr": best.get("lr", 1e-3), "weight_decay": best.get("weight_decay", 1e-5)}
+            })
         
         tp, vp = t_sc["past_covariates"], v_sc["past_covariates"]
         if t_sc["future_covariates"]: tp = tp.stack(t_sc["future_covariates"])
@@ -120,7 +143,28 @@ class NeuralForecastAdapter(ModelAdapter):
         nf_df, exog = self._prepare_df(csv_path)
         nf_df['ds'] = nf_df['ds'].dt.tz_localize(None)
         train_df = nf_df[nf_df['ds'] <= to_naive(train_end_str)].reset_index(drop=True)
-        model = TimesNet(h=24, input_size=168, futr_exog_list=exog, loss=MQLoss(quantiles=[0.1, 0.5, 0.9]), max_steps=self.config.get("n_epochs", 10))
+        
+        # Baseline core params
+        model_params = {
+            "h": 24,
+            "input_size": 168,
+            "futr_exog_list": exog,
+            "loss": MQLoss(quantiles=[0.1, 0.5, 0.9]),
+            "max_steps": self.config.get("n_epochs", 50)
+        }
+        
+        # Override with HPO results if available
+        if "best_params" in self.config:
+            best = self.config["best_params"]
+            model_params.update({
+                "hidden_size": best.get("hidden_size", 64),
+                "conv_hidden_size": best.get("conv_hidden_size", 64),
+                "top_k": best.get("top_k", 2),
+                "learning_rate": best.get("lr", 1e-3),
+                "dropout": best.get("dropout", 0.1)
+            })
+            
+        model = TimesNet(**model_params)
         nf = NeuralForecast(models=[model], freq='h')
         nf.fit(df=train_df)
         self.model = nf
@@ -170,7 +214,20 @@ class Benchmarker:
     def __init__(self, csv_path: str, models_to_run: List[str]):
         self.csv_path, self.results = csv_path, []
         self.models_to_run = [m.upper() for m in models_to_run]
-        self.configs = {"NHITS": {"type": "NHITS", "n_epochs": 10}, "TIMESNET": {"type": "TimesNet", "n_epochs": 50}}
+        
+        # Load optimized params if they exist
+        nhits_best = self._load_json("results/best_params_NHITS.json")
+        timesnet_best = self._load_json("results/best_params_TIMESNET.json")
+        
+        self.configs = {
+            "NHITS": {"type": "NHITS", "n_epochs": 15, "best_params": nhits_best},
+            "TIMESNET": {"type": "TimesNet", "n_epochs": 1000, "best_params": timesnet_best}
+        }
+
+    def _load_json(self, path: str):
+        if os.path.exists(path):
+            with open(path, "r") as f: return json.load(f)
+        return None
 
     def run(self):
         for mk in self.models_to_run:
