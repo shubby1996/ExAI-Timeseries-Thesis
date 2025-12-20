@@ -67,7 +67,11 @@ def train_timesnet(csv_path: str, params: Dict[str, Any]):
     nf_df = df_full.reset_index().rename(columns={"timestamp": "ds", "heat_consumption": "y"})
     nf_df["unique_id"] = "nordbyen"
     cfg = mp.default_feature_config()
-    num_ex = [c for c in (cfg.past_covariates_cols + cfg.future_covariates_cols) if c in nf_df.columns and np.issubdtype(nf_df[c].dtype, np.number)]
+    
+    # TimesNet doesn't support hist_exog_list, so treat all exogenous as future (assumes weather is forecasted)
+    num_ex = [c for c in (cfg.past_covariates_cols + cfg.future_covariates_cols) 
+              if c in nf_df.columns and np.issubdtype(nf_df[c].dtype, np.number)]
+    
     nf_df = nf_df[["unique_id", "ds", "y"] + num_ex].dropna()
     nf_df['ds'] = nf_df['ds'].dt.tz_localize(None)
     
@@ -80,7 +84,8 @@ def train_timesnet(csv_path: str, params: Dict[str, Any]):
     model = TimesNet(
         h=24, 
         input_size=168, 
-        futr_exog_list=num_ex, 
+        futr_exog_list=num_ex,  # All exogenous treated as future (weather assumed forecasted)
+        scaler_type="robust",    # Robust scaling for exogenous variables
         loss=MQLoss(quantiles=[0.1, 0.5, 0.9]), 
         max_steps=params.get("max_steps", 100),
         learning_rate=params["lr"],
