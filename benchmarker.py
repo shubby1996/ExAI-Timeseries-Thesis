@@ -77,7 +77,13 @@ class DartsAdapter(ModelAdapter):
                 "optimizer_kwargs": {"lr": best.get("lr", 1e-3), "weight_decay": best.get("weight_decay", 1e-5)}
             })
         
+        #It grabs the historical features (weather, lags, rolling stats) for both training (tp) and validation (vp).
         tp, vp = t_sc["past_covariates"], v_sc["past_covariates"]
+
+        #Lines 81-82 (Stacking): It checks if you have future-known features (calendar variables like "hour", "day_of_week", "holidays").
+        #.stack(): This function essentially glues the two time series together along the "feature" axis.
+        #Before Stack: You might just have [Temperature, Wind].
+        #After Stack: You have [Temperature, Wind, Hour, DayOfWeek, IsHoliday].
         if t_sc["future_covariates"]: tp = tp.stack(t_sc["future_covariates"])
         if v_sc["future_covariates"]: vp = vp.stack(v_sc["future_covariates"])
         
@@ -135,12 +141,17 @@ class NeuralForecastAdapter(ModelAdapter):
         nf_df = df_full.reset_index().rename(columns={"timestamp": "ds", "heat_consumption": "y"})
         nf_df["unique_id"] = "nordbyen"
         cfg = mp.default_feature_config()
-        num_ex = [c for c in (cfg.past_covariates_cols + cfg.future_covariates_cols) if c in nf_df.columns and np.issubdtype(nf_df[c].dtype, np.number)]
-        return nf_df[["unique_id", "ds", "y"] + num_ex].dropna(), num_ex
+        
+        # TimesNet doesn't support hist_exog_list, so treat all exogenous as future (assumes weather is forecasted)
+        futr_ex = [c for c in (cfg.past_covariates_cols + cfg.future_covariates_cols) 
+                   if c in nf_df.columns and np.issubdtype(nf_df[c].dtype, np.number)]
+        
+        all_cols = ["unique_id", "ds", "y"] + futr_ex
+        return nf_df[all_cols].dropna(), futr_ex
 
     def train(self, csv_path: str, train_end_str: str, val_end_str: str):
         print(f"\n[{self.name}] Training...")
-        nf_df, exog = self._prepare_df(csv_path)
+        nf_df, futr_ex = self._prepare_df(csv_path)
         nf_df['ds'] = nf_df['ds'].dt.tz_localize(None)
         train_df = nf_df[nf_df['ds'] <= to_naive(train_end_str)].reset_index(drop=True)
         
@@ -148,7 +159,8 @@ class NeuralForecastAdapter(ModelAdapter):
         model_params = {
             "h": 24,
             "input_size": 168,
-            "futr_exog_list": exog,
+            "futr_exog_list": futr_ex,  # All exogenous treated as future (weather assumed forecasted)
+            "scaler_type": "robust",     # Robust scaling for exogenous variables
             "loss": MQLoss(quantiles=[0.1, 0.5, 0.9]),
             "max_steps": self.config.get("n_epochs", 50)
         }
@@ -172,7 +184,7 @@ class NeuralForecastAdapter(ModelAdapter):
 
     def evaluate(self, csv_path: str, test_start_str: str, n_predictions: int = 50) -> Tuple[Dict[str, float], pd.DataFrame]:
         print(f"[{self.name}] Evaluating (Walk-forward)...")
-        nf_df, _ = self._prepare_df(csv_path)
+        nf_df, futr_ex = self._prepare_df(csv_path)
         nf_df['ds'] = nf_df['ds'].dt.tz_localize(None)
         ts_naive = to_naive(test_start_str)
         
