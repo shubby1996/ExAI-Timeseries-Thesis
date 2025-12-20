@@ -21,6 +21,8 @@ models/*.ckpt
 models/*.pt.ckpt
 
 **/*.ipynb
+#allow benchmark_runner
+!benchmark_runner.ipynb
 
 **/*.err
 **/*.log

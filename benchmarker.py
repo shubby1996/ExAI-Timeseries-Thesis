@@ -7,6 +7,7 @@ import pandas as pd
 from typing import Dict, List, Any, Tuple
 from abc import ABC, abstractmethod
 from sklearn.metrics import mean_absolute_error, mean_squared_error
+from properscoring import crps_ensemble
 
 # Darts imports
 from darts import TimeSeries
@@ -34,6 +35,20 @@ def calculate_picp(y_true: np.ndarray, y_low: np.ndarray, y_high: np.ndarray) ->
 def calculate_miw(y_low: np.ndarray, y_high: np.ndarray) -> float:
     if len(y_low) == 0: return 0.0
     return np.mean(y_high - y_low)
+
+def calculate_crps(y_true: np.ndarray, samples: np.ndarray) -> float:
+    """Calculate CRPS from ensemble samples.
+    samples shape: (n_predictions, n_samples) or list of arrays
+    """
+    if len(y_true) == 0: return 0.0
+    crps_values = []
+    for i, obs in enumerate(y_true):
+        if isinstance(samples, list):
+            ensemble = samples[i]
+        else:
+            ensemble = samples[i] if samples.ndim > 1 else samples
+        crps_values.append(crps_ensemble(obs, ensemble))
+    return np.mean(crps_values)
 
 def to_naive(ts_str: str):
     return pd.Timestamp(ts_str).tz_localize(None)
@@ -105,6 +120,8 @@ class DartsAdapter(ModelAdapter):
         ts_naive = to_naive(test_start_str)
         
         all_rows = []
+        all_samples = []  # Store samples for CRPS
+        all_actuals = []
         for i in range(n_predictions):
             ps = ts_naive + pd.Timedelta(hours=i * 24)
             ht = st[:ps - pd.Timedelta(hours=1)]
@@ -119,7 +136,13 @@ class DartsAdapter(ModelAdapter):
             p10 = po.quantile(0.1).values().flatten()
             p50 = po.quantile(0.5).values().flatten()
             p90 = po.quantile(0.9).values().flatten()
+            
+            # Extract all samples for CRPS
+            samples = po.all_values(copy=False)[:, :, 0].T  # Shape: (24, 100)
+            all_samples.extend([samples[j] for j in range(len(samples))])
+            
             actuals = as_sl.values
+            all_actuals.extend(actuals)
             times = as_sl.index
             
             for t, a, l, m, h in zip(times, actuals, p10, p50, p90):
@@ -131,7 +154,8 @@ class DartsAdapter(ModelAdapter):
             "RMSE": np.sqrt(mean_squared_error(pdf["actual"], pdf["p50"])),
             "MAPE": calculate_mape(pdf["actual"].values, pdf["p50"].values),
             "PICP": calculate_picp(pdf["actual"].values, pdf["p10"].values, pdf["p90"].values),
-            "MIW": calculate_miw(pdf["p10"].values, pdf["p90"].values)
+            "MIW": calculate_miw(pdf["p10"].values, pdf["p90"].values),
+            "CRPS": calculate_crps(np.array(all_actuals), all_samples)
         }
         return metrics, pdf
 
@@ -189,6 +213,8 @@ class NeuralForecastAdapter(ModelAdapter):
         ts_naive = to_naive(test_start_str)
         
         all_rows = []
+        all_samples = []  # Approximate samples from quantiles for CRPS
+        all_actuals = []
         for i in range(n_predictions):
             ps = ts_naive + pd.Timedelta(hours=i * 24)
             hist_df = nf_df[(nf_df['ds'] >= ps - pd.Timedelta(hours=168)) & (nf_df['ds'] < ps)]
@@ -209,6 +235,14 @@ class NeuralForecastAdapter(ModelAdapter):
             actuals = fut_df['y'].values.tolist()
             times = fut_df['ds'].tolist()
             
+            # Approximate samples from quantiles for CRPS calculation
+            for l, m, h in zip(p10, p50, p90):
+                # Generate approximate samples assuming normal distribution
+                # Using quantiles to estimate mean and std
+                samples = np.random.normal(m, (h - l) / 2.56, 100)  # 80% interval ≈ 1.28*2*std
+                all_samples.append(samples)
+            all_actuals.extend(actuals)
+            
             for t, a, l, m, h in zip(times, actuals, p10, p50, p90):
                 all_rows.append({"timestamp": t, "actual": a, "p10": l, "p50": m, "p90": h})
         
@@ -218,7 +252,8 @@ class NeuralForecastAdapter(ModelAdapter):
             "RMSE": np.sqrt(mean_squared_error(pdf["actual"], pdf["p50"])),
             "MAPE": calculate_mape(pdf["actual"].values, pdf["p50"].values),
             "PICP": calculate_picp(pdf["actual"].values, pdf["p10"].values, pdf["p90"].values),
-            "MIW": calculate_miw(pdf["p10"].values, pdf["p90"].values)
+            "MIW": calculate_miw(pdf["p10"].values, pdf["p90"].values),
+            "CRPS": calculate_crps(np.array(all_actuals), all_samples)
         }
         return metrics, pdf
 
@@ -233,7 +268,7 @@ class Benchmarker:
         
         self.configs = {
             "NHITS": {"type": "NHITS", "n_epochs": 15, "best_params": nhits_best},
-            "TIMESNET": {"type": "TimesNet", "n_epochs": 1000, "best_params": timesnet_best}
+            "TIMESNET": {"type": "TimesNet", "n_epochs": 50, "best_params": timesnet_best}  # Reduced from 1000 to prevent timeouts
         }
 
     def _load_json(self, path: str):
