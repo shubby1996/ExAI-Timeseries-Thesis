@@ -7,6 +7,9 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --partition=rtx3080
 
+# Default models if not provided
+MODELS="${1:-NHITS TIMESNET}"
+
 # Activate the conda environment
 source ~/.bashrc
 conda activate myenv
@@ -14,11 +17,12 @@ conda activate myenv
 echo "=========================================="
 echo "SLURM Job ID: $SLURM_JOB_ID"
 echo "Node: $SLURM_NODELIST"
+echo "Models: $MODELS"
 echo "Start Time: $(date)"
 echo "=========================================="
 
 # Run the benchmarker
-/home/hpc/iwi5/iwi5389h/.conda/envs/myenv/bin/python3 run_benchmarker.py
+/home/hpc/iwi5/iwi5389h/.conda/envs/myenv/bin/python3 run_benchmarker.py --models $MODELS
 
 echo ""
 echo "=========================================="

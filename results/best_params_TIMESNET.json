@@ -1,7 +1,7 @@
 {
     "hidden_size": 32,
-    "conv_hidden_size": 128,
+    "conv_hidden_size": 64,
     "top_k": 1,
-    "lr": 3.7343226826948295e-05,
-    "dropout": 0.27823017576112263
+    "lr": 5.315245175800033e-05,
+    "dropout": 0.3718766910613298
 }

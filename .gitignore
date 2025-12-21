@@ -22,6 +22,7 @@ models/*.pt.ckpt
 
 **/*.ipynb
 #allow benchmark_runner
+!hpo_runner.ipynb
 !benchmark_runner.ipynb
 
 **/*.err
