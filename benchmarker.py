@@ -41,6 +41,22 @@ def calculate_crps(y_true: np.ndarray, samples: np.ndarray) -> float:
     samples shape: (n_predictions, n_samples) or list of arrays
     """
     if len(y_true) == 0: return 0.0
+    
+    # Debug output
+    print(f"[CRPS Debug] y_true length: {len(y_true)}")
+    if isinstance(samples, list):
+        print(f"[CRPS Debug] samples is list with length: {len(samples)}")
+    else:
+        print(f"[CRPS Debug] samples shape: {samples.shape}")
+    
+    # Safety check
+    if isinstance(samples, list) and len(samples) != len(y_true):
+        print(f"[CRPS ERROR] Mismatch! y_true has {len(y_true)} elements, samples has {len(samples)} elements")
+        print(f"[CRPS ERROR] Using minimum length: {min(len(y_true), len(samples))}")
+        n = min(len(y_true), len(samples))
+        y_true = y_true[:n]
+        samples = samples[:n]
+    
     crps_values = []
     for i, obs in enumerate(y_true):
         if isinstance(samples, list):
@@ -77,12 +93,18 @@ class DartsAdapter(ModelAdapter):
             "n_epochs": self.config.get("n_epochs", 10),
             "random_state": 42,
             "force_reset": True,
-            "likelihood": QuantileRegression(quantiles=[0.1, 0.5, 0.9])
+            "likelihood": QuantileRegression(quantiles=[0.1, 0.5, 0.9]),
+             "pl_trainer_kwargs": {
+                "logger": True,
+                "enable_checkpointing": False,
+                "default_root_dir": "lightning_logs"
+            }
         }
         
         # Override with HPO results if available
-        if "best_params" in self.config:
+        if "best_params" in self.config and self.config["best_params"] is not None:
             best = self.config["best_params"]
+            print(f"  Using optimized hyperparameters from HPO")
             cp.update({
                 "num_stacks": best.get("num_stacks", 3),
                 "num_blocks": best.get("num_blocks", 1),
@@ -91,6 +113,8 @@ class DartsAdapter(ModelAdapter):
                 "dropout": best.get("dropout", 0.1),
                 "optimizer_kwargs": {"lr": best.get("lr", 1e-3), "weight_decay": best.get("weight_decay", 1e-5)}
             })
+        else:
+            print(f"  Using default hyperparameters (no HPO results found)")
         
         #It grabs the historical features (weather, lags, rolling stats) for both training (tp) and validation (vp).
         tp, vp = t_sc["past_covariates"], v_sc["past_covariates"]
@@ -137,9 +161,9 @@ class DartsAdapter(ModelAdapter):
             p50 = po.quantile(0.5).values().flatten()
             p90 = po.quantile(0.9).values().flatten()
             
-            # Extract all samples for CRPS
-            samples = po.all_values(copy=False)[:, :, 0].T  # Shape: (24, 100)
-            all_samples.extend([samples[j] for j in range(len(samples))])
+            # Extract all samples for CRPS - one array of 100 samples per hour
+            samples = po.all_values(copy=False)[:, :, 0]  # Shape: (24 hours, 100 samples)
+            all_samples.extend([samples[j, :] for j in range(samples.shape[0])])  # Add 24 arrays of 100 samples each
             
             actuals = as_sl.values
             all_actuals.extend(actuals)
@@ -179,6 +203,17 @@ class NeuralForecastAdapter(ModelAdapter):
         nf_df['ds'] = nf_df['ds'].dt.tz_localize(None)
         train_df = nf_df[nf_df['ds'] <= to_naive(train_end_str)].reset_index(drop=True)
         
+        # Calculate max_steps based on epochs
+        # NeuralForecast uses max_steps (total gradient updates), not epochs
+        # To match NHITS epoch behavior: max_steps = epochs * (samples / batch_size)
+        batch_size = 32
+        n_epochs_desired = self.config.get("n_epochs", 50)
+        n_samples = len(train_df)
+        steps_per_epoch = max(1, n_samples // batch_size)
+        max_steps_calculated = n_epochs_desired * steps_per_epoch
+        
+        print(f"  Training setup: {n_epochs_desired} epochs × {steps_per_epoch} steps/epoch = {max_steps_calculated} total steps")
+        
         # Baseline core params
         model_params = {
             "h": 24,
@@ -186,12 +221,17 @@ class NeuralForecastAdapter(ModelAdapter):
             "futr_exog_list": futr_ex,  # All exogenous treated as future (weather assumed forecasted)
             "scaler_type": "robust",     # Robust scaling for exogenous variables
             "loss": MQLoss(quantiles=[0.1, 0.5, 0.9]),
-            "max_steps": self.config.get("n_epochs", 50)
+            "max_steps": max_steps_calculated,
+            "batch_size": batch_size,
+            # PyTorch Lightning Trainer parameters (passed directly, not via trainer_kwargs)
+            "logger": True,
+            "enable_checkpointing": False
         }
         
         # Override with HPO results if available
-        if "best_params" in self.config:
+        if "best_params" in self.config and self.config["best_params"] is not None:
             best = self.config["best_params"]
+            print(f"  Using optimized hyperparameters from HPO")
             model_params.update({
                 "hidden_size": best.get("hidden_size", 64),
                 "conv_hidden_size": best.get("conv_hidden_size", 64),
@@ -199,6 +239,8 @@ class NeuralForecastAdapter(ModelAdapter):
                 "learning_rate": best.get("lr", 1e-3),
                 "dropout": best.get("dropout", 0.1)
             })
+        else:
+            print(f"  Using default hyperparameters (no HPO results found)")
             
         model = TimesNet(**model_params)
         nf = NeuralForecast(models=[model], freq='h')
@@ -236,12 +278,13 @@ class NeuralForecastAdapter(ModelAdapter):
             times = fut_df['ds'].tolist()
             
             # Approximate samples from quantiles for CRPS calculation
+            # Generate one array of 100 samples per hour (24 hours total)
             for l, m, h in zip(p10, p50, p90):
                 # Generate approximate samples assuming normal distribution
                 # Using quantiles to estimate mean and std
                 samples = np.random.normal(m, (h - l) / 2.56, 100)  # 80% interval ≈ 1.28*2*std
-                all_samples.append(samples)
-            all_actuals.extend(actuals)
+                all_samples.append(samples)  # Append 100 samples for this hour
+            all_actuals.extend(actuals)  # Extend with 24 actual values
             
             for t, a, l, m, h in zip(times, actuals, p10, p50, p90):
                 all_rows.append({"timestamp": t, "actual": a, "p10": l, "p50": m, "p90": h})
@@ -267,8 +310,8 @@ class Benchmarker:
         timesnet_best = self._load_json("results/best_params_TIMESNET.json")
         
         self.configs = {
-            "NHITS": {"type": "NHITS", "n_epochs": 15, "best_params": nhits_best},
-            "TIMESNET": {"type": "TimesNet", "n_epochs": 50, "best_params": timesnet_best}  # Reduced from 1000 to prevent timeouts
+            "NHITS": {"type": "NHITS", "n_epochs": 100, "best_params": nhits_best},
+            "TIMESNET": {"type": "TimesNet", "n_epochs": 150, "best_params": timesnet_best}  # Reduced from 1000 to prevent timeouts
         }
 
     def _load_json(self, path: str):
@@ -277,6 +320,17 @@ class Benchmarker:
         return None
 
     def run(self):
+        print("\n" + "="*70)
+        print("BENCHMARKER CONFIGURATION")
+        print("="*70)
+        for mk in self.models_to_run:
+            if mk not in self.configs: continue
+            cfg = self.configs[mk]
+            has_best = cfg.get("best_params") is not None
+            hpo_status = "✓ Using HPO best params" if has_best else "✗ No HPO params (using defaults)"
+            print(f"{mk}: n_epochs={cfg.get('n_epochs', 10)}, HPO Status: {hpo_status}")
+        print("="*70 + "\n")
+        
         for mk in self.models_to_run:
             if mk not in self.configs: continue
             cfg = self.configs[mk]; adapter = NeuralForecastAdapter(mk, cfg) if mk == "TIMESNET" else DartsAdapter(mk, cfg)
