@@ -140,7 +140,7 @@ def predict_next_horizon(
 
 if __name__ == "__main__":
     DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    CSV_PATH = os.path.join(DATA_DIR, "nordbyen_features_engineered.csv")
+    CSV_PATH = os.path.join(DATA_DIR, "nordbyen_processing", "nordbyen_features_engineered.csv")
     MODEL_PATH = os.path.join(DATA_DIR, "models", "tcn_nordbyen.pt")
     PREP_STATE_PATH = os.path.join(DATA_DIR, "models", "tcn_nordbyen_preprocessing_state.pkl")
     SCHOOL_HOL_PATH = os.path.join(DATA_DIR, "school_holidays.csv")

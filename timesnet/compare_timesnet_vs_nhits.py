@@ -16,7 +16,7 @@ def main():
     
     # 1. Load Data & Preprocessing State
     data_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    csv_path = os.path.join(data_dir, "nordbyen_features_engineered.csv")
+    csv_path = os.path.join(data_dir, "nordbyen_processing", "nordbyen_features_engineered.csv")
     models_dir = os.path.join(data_dir, "models")
     timesnet_models_dir = os.path.join(data_dir, "timesnet", "models")
     

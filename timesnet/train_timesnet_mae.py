@@ -17,7 +17,7 @@ def main():
     
     # 1. Load Data
     data_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    csv_path = os.path.join(data_dir, "nordbyen_features_engineered.csv")
+    csv_path = os.path.join(data_dir, "nordbyen_processing", "nordbyen_features_engineered.csv")
     
     print(f"Loading data from: {csv_path}")
     df_full = mp.load_and_validate_features(csv_path)

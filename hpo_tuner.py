@@ -138,7 +138,7 @@ if __name__ == "__main__":
     n_trials = int(sys.argv[2]) if len(sys.argv) > 2 else 20
     test_mode = "--test" in sys.argv
     
-    csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "nordbyen_features_engineered.csv")
+    csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "nordbyen_processing", "nordbyen_features_engineered.csv")
     
     def test_objective(trial):
         if model_name == "NHITS":
