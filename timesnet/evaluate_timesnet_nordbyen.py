@@ -194,7 +194,7 @@ def evaluate_timesnet(
 if __name__ == '__main__':
     DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     evaluate_timesnet(
-        csv_path=os.path.join(DATA_DIR, 'nordbyen_features_engineered.csv'),
+        csv_path=os.path.join(DATA_DIR, 'nordbyen_processing', 'nordbyen_features_engineered.csv'),
         model_dir=os.path.join(DATA_DIR, 'models'),
         stride=24, n_predictions=50
     )

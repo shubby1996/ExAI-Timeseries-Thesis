@@ -157,7 +157,7 @@ def predict_timesnet(
 
 if __name__ == "__main__":
     DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    CSV_PATH = os.path.join(DATA_DIR, "nordbyen_features_engineered.csv")
+    CSV_PATH = os.path.join(DATA_DIR, "nordbyen_processing", "nordbyen_features_engineered.csv")
     MODEL_DIR = os.path.join(DATA_DIR, "timesnet", "models")
 
     predict_timesnet(

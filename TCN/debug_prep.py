@@ -11,7 +11,7 @@ from model_preprocessing import prepare_model_data, default_feature_config
 if __name__ == "__main__":
     print("Testing prepare_model_data...")
     DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    CSV_PATH = os.path.join(DATA_DIR, "nordbyen_features_engineered.csv")
+    CSV_PATH = os.path.join(DATA_DIR, "nordbyen_processing", "nordbyen_features_engineered.csv")
     
     TRAIN_END = pd.Timestamp("2018-12-31 23:00:00+00:00")
     VAL_END = pd.Timestamp("2019-12-31 23:00:00+00:00")

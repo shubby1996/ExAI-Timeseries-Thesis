@@ -17,7 +17,7 @@ print(f"[TEST MODE] This should complete in ~2-3 minutes\n")
 # Run benchmarker with test config
 models_to_test = ["NHITS"]  # Test NHITS first since it failed
 benchmarker_instance = Benchmarker(
-    "nordbyen_features_engineered.csv",
+    "nordbyen_processing/nordbyen_features_engineered.csv",
     models_to_test
 )
 

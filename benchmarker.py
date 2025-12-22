@@ -318,6 +318,44 @@ class Benchmarker:
         if os.path.exists(path):
             with open(path, "r") as f: return json.load(f)
         return None
+    
+    def _print_improvement_summary(self, history_file: str):
+        """Print summary showing improvement trends over time."""
+        try:
+            history = pd.read_csv(history_file)
+            print("\n" + "="*70)
+            print("IMPROVEMENT SUMMARY (vs. Previous Best)")
+            print("="*70)
+            
+            for model in history['Model'].unique():
+                model_history = history[history['Model'] == model].sort_values('run_date')
+                if len(model_history) < 2:
+                    print(f"\n{model}: First run - no comparison available")
+                    continue
+                
+                current = model_history.iloc[-1]
+                previous_best = model_history.iloc[:-1]
+                
+                print(f"\n{model}:")
+                for metric in ['MAE', 'RMSE', 'MAPE', 'MIW', 'CRPS']:
+                    if metric in current:
+                        curr_val = current[metric]
+                        prev_best_val = previous_best[metric].min()
+                        
+                        if curr_val < prev_best_val:
+                            improvement = ((prev_best_val - curr_val) / prev_best_val) * 100
+                            print(f"  {metric:8s}: {curr_val:.4f} (↓ {improvement:.2f}% improvement ✓)")
+                        elif curr_val > prev_best_val:
+                            degradation = ((curr_val - prev_best_val) / prev_best_val) * 100
+                            print(f"  {metric:8s}: {curr_val:.4f} (↑ {degradation:.2f}% worse)")
+                        else:
+                            print(f"  {metric:8s}: {curr_val:.4f} (no change)")
+                
+                print(f"  Total runs: {len(model_history)}")
+                print(f"  Best run date: {previous_best.loc[previous_best['MAE'].idxmin(), 'run_date']}")
+                
+        except Exception as e:
+            print(f"\n⚠️  Could not generate improvement summary: {e}")
 
     def run(self):
         print("\n" + "="*70)
@@ -345,9 +383,42 @@ class Benchmarker:
         report_df = pd.DataFrame(self.results)
         print("\n" + "="*70 + "\nBENCHMARK RESULTS\n" + "="*70)
         print(report_df.to_string(index=False))
-        os.makedirs("results", exist_ok=True); report_df.to_csv("results/benchmark_results.csv", index=False)
+        
+        # Save results with timestamp for historical tracking
+        os.makedirs("results", exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        # Save current results (overwrite)
+        report_df.to_csv("results/benchmark_results.csv", index=False)
+        
+        # Save timestamped copy for history
+        report_df.to_csv(f"results/benchmark_results_{timestamp}.csv", index=False)
+        print(f"\n✓ Results saved:")
+        print(f"  - Current: results/benchmark_results.csv")
+        print(f"  - History: results/benchmark_results_{timestamp}.csv")
+        
+        # Append to history file with metadata
+        history_file = "results/benchmark_history.csv"
+        for result in self.results:
+            result_with_meta = result.copy()
+            result_with_meta['timestamp'] = timestamp
+            result_with_meta['run_date'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            result_with_meta['n_epochs'] = self.configs[result['Model']].get('n_epochs', 'N/A')
+            result_with_meta['has_hpo'] = self.configs[result['Model']].get('best_params') is not None
+            
+            history_df = pd.DataFrame([result_with_meta])
+            if os.path.exists(history_file):
+                history_df.to_csv(history_file, mode='a', header=False, index=False)
+            else:
+                history_df.to_csv(history_file, index=False)
+        
+        print(f"  - History: {history_file} (cumulative)")
+        
+        # Print summary of improvements if history exists
+        if os.path.exists(history_file):
+            self._print_improvement_summary(history_file)
 
 if __name__ == "__main__":
     models = sys.argv[1:] if len(sys.argv) > 1 else ["NHITS", "TIMESNET"]
-    csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "nordbyen_features_engineered.csv")
+    csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "nordbyen_processing", "nordbyen_features_engineered.csv")
     Benchmarker(csv_path, models).run()

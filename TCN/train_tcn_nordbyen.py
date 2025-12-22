@@ -207,7 +207,7 @@ def train_tcn_nordbyen(
 if __name__ == "__main__":
     # Configuration
     DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    CSV_PATH = os.path.join(DATA_DIR, "nordbyen_features_engineered.csv")
+    CSV_PATH = os.path.join(DATA_DIR, "nordbyen_processing", "nordbyen_features_engineered.csv")
     MODEL_SAVE_DIR = os.path.join(DATA_DIR, "models")
 
     train_tcn_nordbyen(
