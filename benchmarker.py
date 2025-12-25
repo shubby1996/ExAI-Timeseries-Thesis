@@ -1,5 +1,6 @@
 import os
 import sys
+from datetime import datetime
 import pickle
 import json
 import numpy as np
@@ -17,7 +18,7 @@ from darts.utils.likelihood_models import QuantileRegression
 # NeuralForecast imports
 from neuralforecast import NeuralForecast
 from neuralforecast.models import TimesNet
-from neuralforecast.losses.pytorch import MQLoss
+from neuralforecast.losses.pytorch import MQLoss, MSE
 
 # Project imports
 import model_preprocessing as mp
@@ -93,13 +94,16 @@ class DartsAdapter(ModelAdapter):
             "n_epochs": self.config.get("n_epochs", 10),
             "random_state": 42,
             "force_reset": True,
-            "likelihood": QuantileRegression(quantiles=[0.1, 0.5, 0.9]),
              "pl_trainer_kwargs": {
                 "logger": True,
                 "enable_checkpointing": False,
                 "default_root_dir": "lightning_logs"
             }
         }
+
+        # Switch between quantile (probabilistic) and point (MSE) objectives
+        if self.config.get("quantile", True):
+            cp["likelihood"] = QuantileRegression(quantiles=[0.1, 0.5, 0.9])
         
         # Override with HPO results if available
         if "best_params" in self.config and self.config["best_params"] is not None:
@@ -146,6 +150,7 @@ class DartsAdapter(ModelAdapter):
         all_rows = []
         all_samples = []  # Store samples for CRPS
         all_actuals = []
+        is_quantile = self.config.get("quantile", True)
         for i in range(n_predictions):
             ps = ts_naive + pd.Timedelta(hours=i * 24)
             ht = st[:ps - pd.Timedelta(hours=1)]
@@ -154,16 +159,27 @@ class DartsAdapter(ModelAdapter):
             if len(as_sl) < 24: break
             
             hp = sp.stack(sf)[:ps - pd.Timedelta(hours=1)] if sf else sp[:ps-pd.Timedelta(hours=1)]
-            preds = self.model.predict(n=24, series=ht, past_covariates=hp, num_samples=100) # Increased samples for plotter
-            
+            preds = self.model.predict(
+                n=24,
+                series=ht,
+                past_covariates=hp,
+                num_samples=100 if is_quantile else 1
+            )
+
             po = self.state.target_scaler.inverse_transform(preds)
-            p10 = po.quantile(0.1).values().flatten()
-            p50 = po.quantile(0.5).values().flatten()
-            p90 = po.quantile(0.9).values().flatten()
-            
-            # Extract all samples for CRPS - one array of 100 samples per hour
-            samples = po.all_values(copy=False)[:, :, 0]  # Shape: (24 hours, 100 samples)
-            all_samples.extend([samples[j, :] for j in range(samples.shape[0])])  # Add 24 arrays of 100 samples each
+
+            if is_quantile:
+                p10 = po.quantile(0.1).values().flatten()
+                p50 = po.quantile(0.5).values().flatten()
+                p90 = po.quantile(0.9).values().flatten()
+                samples = po.all_values(copy=False)[:, :, 0]  # (24, num_samples)
+                all_samples.extend([samples[j, :] for j in range(samples.shape[0])])
+            else:
+                p50 = po.values().flatten()
+                p10 = p50
+                p90 = p50
+                # For point forecasts, CRPS / interval metrics are not applicable
+                all_samples.extend([np.array([v]) for v in p50])
             
             actuals = as_sl.values
             all_actuals.extend(actuals)
@@ -177,9 +193,9 @@ class DartsAdapter(ModelAdapter):
             "MAE": mean_absolute_error(pdf["actual"], pdf["p50"]),
             "RMSE": np.sqrt(mean_squared_error(pdf["actual"], pdf["p50"])),
             "MAPE": calculate_mape(pdf["actual"].values, pdf["p50"].values),
-            "PICP": calculate_picp(pdf["actual"].values, pdf["p10"].values, pdf["p90"].values),
-            "MIW": calculate_miw(pdf["p10"].values, pdf["p90"].values),
-            "CRPS": calculate_crps(np.array(all_actuals), all_samples)
+            "PICP": calculate_picp(pdf["actual"].values, pdf["p10"].values, pdf["p90"].values) if is_quantile else np.nan,
+            "MIW": calculate_miw(pdf["p10"].values, pdf["p90"].values) if is_quantile else np.nan,
+            "CRPS": calculate_crps(np.array(all_actuals), all_samples) if is_quantile else np.nan
         }
         return metrics, pdf
 
@@ -220,7 +236,7 @@ class NeuralForecastAdapter(ModelAdapter):
             "input_size": 168,
             "futr_exog_list": futr_ex,  # All exogenous treated as future (weather assumed forecasted)
             "scaler_type": "robust",     # Robust scaling for exogenous variables
-            "loss": MQLoss(quantiles=[0.1, 0.5, 0.9]),
+            "loss": MQLoss(quantiles=[0.1, 0.5, 0.9]) if self.config.get("quantile", True) else MSE(),
             "max_steps": max_steps_calculated,
             "batch_size": batch_size,
             # PyTorch Lightning Trainer parameters (passed directly, not via trainer_kwargs)
@@ -257,6 +273,7 @@ class NeuralForecastAdapter(ModelAdapter):
         all_rows = []
         all_samples = []  # Approximate samples from quantiles for CRPS
         all_actuals = []
+        is_quantile = self.config.get("quantile", True)
         for i in range(n_predictions):
             ps = ts_naive + pd.Timedelta(hours=i * 24)
             hist_df = nf_df[(nf_df['ds'] >= ps - pd.Timedelta(hours=168)) & (nf_df['ds'] < ps)]
@@ -269,22 +286,30 @@ class NeuralForecastAdapter(ModelAdapter):
                     for c in fcst.columns:
                         if c.endswith(s): return c
                 return None
-            cm, cl, ch = find_col(['median', '-q-0.5']), find_col(['-lo-80.0', '-q-0.1']), find_col(['-hi-80.0', '-q-0.9'])
-            
-            p50 = fcst[cm].values.tolist() if cm else fcst.iloc[:, -1].values.tolist()
-            p10 = fcst[cl].values.tolist() if cl else p50 # Fallback
-            p90 = fcst[ch].values.tolist() if ch else p50 # Fallback
+
+            if is_quantile:
+                cm, cl, ch = find_col(['median', '-q-0.5']), find_col(['-lo-80.0', '-q-0.1']), find_col(['-hi-80.0', '-q-0.9'])
+                p50 = fcst[cm].values.tolist() if cm else fcst.iloc[:, -1].values.tolist()
+                p10 = fcst[cl].values.tolist() if cl else p50
+                p90 = fcst[ch].values.tolist() if ch else p50
+            else:
+                # Deterministic TimesNet outputs a single column (forecast mean)
+                cm = find_col(['TimesNet', 'y_hat'])
+                p50 = fcst[cm].values.tolist() if cm else fcst.iloc[:, -1].values.tolist()
+                p10 = p50
+                p90 = p50
             actuals = fut_df['y'].values.tolist()
             times = fut_df['ds'].tolist()
             
-            # Approximate samples from quantiles for CRPS calculation
-            # Generate one array of 100 samples per hour (24 hours total)
-            for l, m, h in zip(p10, p50, p90):
-                # Generate approximate samples assuming normal distribution
-                # Using quantiles to estimate mean and std
-                samples = np.random.normal(m, (h - l) / 2.56, 100)  # 80% interval ≈ 1.28*2*std
-                all_samples.append(samples)  # Append 100 samples for this hour
-            all_actuals.extend(actuals)  # Extend with 24 actual values
+            if is_quantile:
+                # Approximate samples from quantiles for CRPS calculation
+                for l, m, h in zip(p10, p50, p90):
+                    samples = np.random.normal(m, (h - l) / 2.56, 100)
+                    all_samples.append(samples)
+            else:
+                for m in p50:
+                    all_samples.append(np.array([m]))
+            all_actuals.extend(actuals)
             
             for t, a, l, m, h in zip(times, actuals, p10, p50, p90):
                 all_rows.append({"timestamp": t, "actual": a, "p10": l, "p50": m, "p90": h})
@@ -294,9 +319,9 @@ class NeuralForecastAdapter(ModelAdapter):
             "MAE": mean_absolute_error(pdf["actual"], pdf["p50"]),
             "RMSE": np.sqrt(mean_squared_error(pdf["actual"], pdf["p50"])),
             "MAPE": calculate_mape(pdf["actual"].values, pdf["p50"].values),
-            "PICP": calculate_picp(pdf["actual"].values, pdf["p10"].values, pdf["p90"].values),
-            "MIW": calculate_miw(pdf["p10"].values, pdf["p90"].values),
-            "CRPS": calculate_crps(np.array(all_actuals), all_samples)
+            "PICP": calculate_picp(pdf["actual"].values, pdf["p10"].values, pdf["p90"].values) if is_quantile else np.nan,
+            "MIW": calculate_miw(pdf["p10"].values, pdf["p90"].values) if is_quantile else np.nan,
+            "CRPS": calculate_crps(np.array(all_actuals), all_samples) if is_quantile else np.nan
         }
         return metrics, pdf
 
@@ -310,8 +335,13 @@ class Benchmarker:
         timesnet_best = self._load_json("results/best_params_TIMESNET.json")
         
         self.configs = {
-            "NHITS": {"type": "NHITS", "n_epochs": 100, "best_params": nhits_best},
-            "TIMESNET": {"type": "TimesNet", "n_epochs": 150, "best_params": timesnet_best}  # Reduced from 1000 to prevent timeouts
+            "NHITS_Q": {"type": "NHITS", "quantile": True, "n_epochs": 100, "best_params": nhits_best},
+            "NHITS_MSE": {"type": "NHITS", "quantile": False, "n_epochs": 100, "best_params": None},
+            "TIMESNET_Q": {"type": "TIMESNET", "quantile": True, "n_epochs": 150, "best_params": timesnet_best},
+            "TIMESNET_MSE": {"type": "TIMESNET", "quantile": False, "n_epochs": 150, "best_params": None},
+            # Backward-compatible aliases
+            "NHITS": {"type": "NHITS", "quantile": True, "n_epochs": 100, "best_params": nhits_best},
+            "TIMESNET": {"type": "TIMESNET", "quantile": True, "n_epochs": 150, "best_params": timesnet_best},
         }
 
     def _load_json(self, path: str):
@@ -371,7 +401,8 @@ class Benchmarker:
         
         for mk in self.models_to_run:
             if mk not in self.configs: continue
-            cfg = self.configs[mk]; adapter = NeuralForecastAdapter(mk, cfg) if mk == "TIMESNET" else DartsAdapter(mk, cfg)
+            cfg = self.configs[mk]
+            adapter = NeuralForecastAdapter(mk, cfg) if cfg["type"].upper() == "TIMESNET" else DartsAdapter(mk, cfg)
             adapter.train(self.csv_path, "2018-12-31 23:00:00+00:00", "2019-12-31 23:00:00+00:00")
             metrics, pdf = adapter.evaluate(self.csv_path, "2020-01-01 00:00:00+00:00")
             metrics["Model"] = mk; self.results.append(metrics)
@@ -419,6 +450,6 @@ class Benchmarker:
             self._print_improvement_summary(history_file)
 
 if __name__ == "__main__":
-    models = sys.argv[1:] if len(sys.argv) > 1 else ["NHITS", "TIMESNET"]
+    models = sys.argv[1:] if len(sys.argv) > 1 else ["NHITS_Q", "NHITS_MSE", "TIMESNET_Q", "TIMESNET_MSE"]
     csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "nordbyen_processing", "nordbyen_features_engineered.csv")
     Benchmarker(csv_path, models).run()

@@ -12,21 +12,21 @@ print("QUICK BENCHMARKER TEST (Reduced epochs for fast testing)")
 print("=" * 70)
 
 print(f"\n[TEST MODE] Using reduced epochs for quick testing")
-print(f"[TEST MODE] This should complete in ~2-3 minutes\n")
+print(f"[TEST MODE] This should complete in ~5-8 minutes\n")
 
-# Run benchmarker with test config
-models_to_test = ["NHITS"]  # Test NHITS first since it failed
+# Run benchmarker with test config - testing both TimesNet variants
+models_to_test = ["TIMESNET_Q", "TIMESNET_MSE"]
 benchmarker_instance = Benchmarker(
     "nordbyen_processing/nordbyen_features_engineered.csv",
     models_to_test
 )
 
 # Override configs with minimal epochs for testing
-benchmarker_instance.configs["NHITS"]["n_epochs"] = 2
-benchmarker_instance.configs["TIMESNET"]["n_epochs"] = 10
+benchmarker_instance.configs["TIMESNET_Q"]["n_epochs"] = 2
+benchmarker_instance.configs["TIMESNET_MSE"]["n_epochs"] = 2
 
-print(f"[TEST MODE] NHITS will use n_epochs=2")
-print(f"[TEST MODE] TIMESNET will use n_epochs=10")
+print(f"[TEST MODE] TIMESNET_Q (quantile) will use n_epochs=2")
+print(f"[TEST MODE] TIMESNET_MSE (deterministic) will use n_epochs=2")
 
 try:
     benchmarker_instance.run()

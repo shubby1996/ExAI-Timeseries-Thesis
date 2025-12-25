@@ -127,7 +127,7 @@ def plot_error_over_time(df, model_name, save_path):
 
 def main():
     sns.set_theme(style="whitegrid")
-    models = ["NHITS", "TIMESNET"]
+    models = ["NHITS_Q", "TIMESNET_Q", "NHITS_MSE", "TIMESNET_MSE"]
     results = {}
     for model in models:
         path = f"results/{model}_predictions.csv"
