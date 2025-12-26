@@ -71,7 +71,7 @@ class PreprocessingState:
 
 def default_feature_config() -> ModelFeatureConfig:
     """
-    Create the default feature-role mapping for nordbyen_features_engineered.csv.
+    Create the default feature-role mapping for nordbyen_features_engineered.csv (HEAT data).
     
     Returns
     -------
@@ -94,6 +94,42 @@ def default_feature_config() -> ModelFeatureConfig:
             "temp", "dew_point", "humidity", "clouds_all",
             "wind_speed", "rain_1h", "snow_1h", "pressure",
             "heat_lag_1h", "heat_lag_24h", "heat_rolling_24h",
+            "temp_squared", "temp_wind_interaction", "temp_weekend_interaction",
+        ],
+        future_covariates_cols=[
+            "hour", "hour_sin", "hour_cos",
+            "day_of_week", "month", "is_weekend", "season",
+            "is_public_holiday", "is_school_holiday",
+        ],
+        static_covariates_cols=[],
+    )
+
+
+def water_feature_config() -> ModelFeatureConfig:
+    """
+    Create the feature-role mapping for centrum_features_engineered_from_2018-04-01.csv (WATER data).
+    
+    Returns
+    -------
+    ModelFeatureConfig
+        Configuration with predefined feature roles:
+        - Target: water_consumption
+        - Past covariates: weather features, lags, interactions
+            weather (temp, humidity, etc.)
+            lags (water_lag_1h, water_lag_24h)
+            rolling (water_rolling_24h)
+            engineered interactions (temp_wind_interaction, etc.)
+        - Future covariates: time features and holidays
+            calendar encodings (hour_sin, hour_cos, day_of_week, …)
+            holiday flags (is_public_holiday, is_school_holiday)
+    """
+    return ModelFeatureConfig(
+        time_col="timestamp",
+        target_col="water_consumption",
+        past_covariates_cols=[
+            "temp", "dew_point", "humidity", "clouds_all",
+            "wind_speed", "rain_1h", "snow_1h", "pressure",
+            "water_lag_1h", "water_lag_24h", "water_rolling_24h",
             "temp_squared", "temp_wind_interaction", "temp_weekend_interaction",
         ],
         future_covariates_cols=[

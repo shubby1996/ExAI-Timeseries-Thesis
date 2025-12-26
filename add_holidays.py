@@ -4,7 +4,7 @@ import os
 
 # Define file paths
 DATA_DIR = "."
-INPUT_FILE = os.path.join(DATA_DIR, "nordbyen_processing", "nordbyen_features_engineered.csv")
+INPUT_FILE = os.path.join(DATA_DIR, "processing", "nordbyen_processing", "nordbyen_features_engineered.csv")
 SCHOOL_HOLIDAYS_FILE = os.path.join(DATA_DIR, "school_holidays.csv")
 OUTPUT_FILE = os.path.join(DATA_DIR, "nordbyen_features_with_holidays.csv")
 
