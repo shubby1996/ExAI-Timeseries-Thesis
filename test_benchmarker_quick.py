@@ -1,30 +1,39 @@
 #!/usr/bin/env python3
 """
-Quick test script to verify benchmarker works before submitting to SLURM.
-This tests with reduced epochs and a shorter evaluation period.
+Quick test script to verify heat benchmarker works before submitting to SLURM.
+Tests all 4 model variants (NHITS_Q, NHITS_MSE, TIMESNET_Q, TIMESNET_MSE)
+with reduced epochs for fast validation.
+
+Dataset: Nordbyen heat consumption
+Expected runtime: ~10-12 minutes
 """
 import sys
 import os
 from benchmarker import Benchmarker
 
 print("=" * 70)
-print("QUICK BENCHMARKER TEST (Reduced epochs for fast testing)")
+print("HEAT BENCHMARKER - QUICK TEST (Nordbyen Dataset)")
 print("=" * 70)
 
-print(f"\n[TEST MODE] Using reduced epochs for quick testing")
-print(f"[TEST MODE] This should complete in ~5-8 minutes\n")
+print(f"\n[TEST MODE] Using reduced epochs for quick validation")
+print(f"[TEST MODE] Testing all 4 model variants")
+print(f"[TEST MODE] Expected runtime: ~10-12 minutes\n")
 
-# Run benchmarker with test config - testing both TimesNet variants
-models_to_test = ["TIMESNET_Q", "TIMESNET_MSE"]
+# Test all 4 model variants
+models_to_test = ["NHITS_Q", "NHITS_MSE", "TIMESNET_Q", "TIMESNET_MSE"]
 benchmarker_instance = Benchmarker(
-    "nordbyen_processing/nordbyen_features_engineered.csv",
+    "processing/nordbyen_processing/nordbyen_features_engineered.csv",
     models_to_test
 )
 
 # Override configs with minimal epochs for testing
+benchmarker_instance.configs["NHITS_Q"]["n_epochs"] = 3
+benchmarker_instance.configs["NHITS_MSE"]["n_epochs"] = 3
 benchmarker_instance.configs["TIMESNET_Q"]["n_epochs"] = 2
 benchmarker_instance.configs["TIMESNET_MSE"]["n_epochs"] = 2
 
+print(f"[TEST MODE] NHITS_Q (quantile) will use n_epochs=3")
+print(f"[TEST MODE] NHITS_MSE (deterministic) will use n_epochs=3")
 print(f"[TEST MODE] TIMESNET_Q (quantile) will use n_epochs=2")
 print(f"[TEST MODE] TIMESNET_MSE (deterministic) will use n_epochs=2")
 

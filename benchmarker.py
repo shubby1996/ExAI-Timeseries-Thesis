@@ -83,7 +83,8 @@ class ModelAdapter(ABC):
 class DartsAdapter(ModelAdapter):
     def train(self, csv_path: str, train_end_str: str, val_end_str: str):
         print(f"\n[{self.name}] Training...")
-        cfg = mp.default_feature_config()
+        # Auto-detect water vs heat data
+        cfg = mp.water_feature_config() if "water" in csv_path.lower() or "centrum" in csv_path.lower() else mp.default_feature_config()
         self.state, t_sc, v_sc, _ = mp.prepare_model_data(csv_path, to_naive(train_end_str), to_naive(val_end_str), cfg)
         
         # Default core params
@@ -202,9 +203,10 @@ class DartsAdapter(ModelAdapter):
 class NeuralForecastAdapter(ModelAdapter):
     def _prepare_df(self, csv_path):
         df_full = mp.load_and_validate_features(csv_path)
-        nf_df = df_full.reset_index().rename(columns={"timestamp": "ds", "heat_consumption": "y"})
-        nf_df["unique_id"] = "nordbyen"
-        cfg = mp.default_feature_config()
+        nf_df = df_full.reset_index().rename(columns={"timestamp": "ds", "heat_consumption": "y"} if "heat" in csv_path.lower() or "nordbyen" in csv_path.lower() else {"timestamp": "ds", "water_consumption": "y"})
+        nf_df["unique_id"] = "nordbyen" if "nordbyen" in csv_path.lower() else "centrum"
+        # Auto-detect water vs heat data for feature config
+        cfg = mp.water_feature_config() if "water" in csv_path.lower() or "centrum" in csv_path.lower() else mp.default_feature_config()
         
         # TimesNet doesn't support hist_exog_list, so treat all exogenous as future (assumes weather is forecasted)
         futr_ex = [c for c in (cfg.past_covariates_cols + cfg.future_covariates_cols) 
@@ -451,5 +453,5 @@ class Benchmarker:
 
 if __name__ == "__main__":
     models = sys.argv[1:] if len(sys.argv) > 1 else ["NHITS_Q", "NHITS_MSE", "TIMESNET_Q", "TIMESNET_MSE"]
-    csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "nordbyen_processing", "nordbyen_features_engineered.csv")
+    csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "processing", "nordbyen_processing", "nordbyen_features_engineered.csv")
     Benchmarker(csv_path, models).run()
