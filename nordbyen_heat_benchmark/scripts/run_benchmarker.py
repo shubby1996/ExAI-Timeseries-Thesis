@@ -31,12 +31,12 @@ def main():
     parser = argparse.ArgumentParser(description='Run benchmarking for specified models')
     parser.add_argument('--models', nargs='+', default=["NHITS", "TIMESNET"],
                         help='Models to benchmark (e.g., --models NHITS TIMESNET)')
-    parser.add_argument('--data', default="../../processing/centrum_processing/centrum_features_engineered.csv",
+    parser.add_argument('--data', default="processing/nordbyen_processing/nordbyen_features_engineered.csv",
                         help='Path to the data CSV file')
     args = parser.parse_args()
     
-    # Configuration
-    DATA_PATH = "../../processing/nordbyen_processing/nordbyen_features_engineered.csv"
+    # Configuration - path relative to project root (where SLURM runs from)
+    DATA_PATH = "processing/nordbyen_processing/nordbyen_features_engineered.csv"
     MODELS_TO_RUN = args.models
     
     print("="*70)
@@ -47,7 +47,7 @@ def main():
     print("="*70)
     
     # Initialize and run benchmarker
-    benchmarker = Benchmarker(DATA_PATH, MODELS_TO_RUN)
+    benchmarker = Benchmarker(DATA_PATH, MODELS_TO_RUN, dataset="Heat (Nordbyen)")
     benchmarker.run()
     
     print("\n" + "="*70)

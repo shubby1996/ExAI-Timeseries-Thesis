@@ -3,15 +3,17 @@
 #SBATCH --output=benchmark_water_%j.log
 #SBATCH --error=benchmark_water_%j.err
 #SBATCH --time=10:00:00
-#SBATCH --partition=rtx3080
-#SBATCH --gres=gpu:rtx3080:1
+#SBATCH --partition=a100
+#SBATCH --gres=gpu:a100:1
 #SBATCH --cpus-per-task=8
 
 # SBATCH --partition=v100
 # SBATCH --gres=gpu:v100:1
 
-# SBATCH --partition=a100
-# SBATCH --gres=gpu:a100:1
+
+
+# SBATCH --partition=rtx3080
+# SBATCH --gres=gpu:rtx3080:1
 
 # Default models if not provided - all four variants
 MODELS="${1:-NHITS_Q NHITS_MSE TIMESNET_Q TIMESNET_MSE}"

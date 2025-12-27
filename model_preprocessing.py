@@ -178,7 +178,11 @@ def load_and_validate_features(
         If time column is missing, timestamps are duplicated, or required columns are missing.
     """
     if cfg is None:
-        cfg = default_feature_config()
+        # Auto-detect water vs heat from file path
+        if "water" in csv_path.lower() or "centrum" in csv_path.lower():
+            cfg = water_feature_config()
+        else:
+            cfg = default_feature_config()
 
     # Load
     df = pd.read_csv(csv_path, parse_dates=[cfg.time_col])
