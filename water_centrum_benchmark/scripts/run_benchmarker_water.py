@@ -31,8 +31,8 @@ def main():
                         help='Models to benchmark (e.g., --models NHITS_Q TIMESNET_Q)')
     args = parser.parse_args()
     
-    # Water consumption data configuration
-    DATA_PATH = "../../processing/centrum_processing/centrum_features_engineered_from_2018-04-01.csv"
+    # Water consumption data configuration - path relative to project root (where SLURM runs from)
+    DATA_PATH = "processing/centrum_processing/centrum_features_engineered_from_2018-04-01.csv"
     MODELS_TO_RUN = args.models
     
     print("="*70)
@@ -45,7 +45,7 @@ def main():
     print("="*70)
     
     # Initialize and run benchmarker
-    benchmarker = Benchmarker(DATA_PATH, MODELS_TO_RUN)
+    benchmarker = Benchmarker(DATA_PATH, MODELS_TO_RUN, dataset="Water (Centrum)")
     benchmarker.run()
     
     print("\n" + "="*70)

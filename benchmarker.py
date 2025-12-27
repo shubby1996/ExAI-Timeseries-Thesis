@@ -156,7 +156,7 @@ class DartsAdapter(ModelAdapter):
             ps = ts_naive + pd.Timedelta(hours=i * 24)
             ht = st[:ps - pd.Timedelta(hours=1)]
             if len(ht) < 168: continue
-            as_sl = df_full['heat_consumption'][ps : ps + pd.Timedelta(hours=23)]
+            as_sl = df_full[self.state.feature_config.target_col][ps : ps + pd.Timedelta(hours=23)]
             if len(as_sl) < 24: break
             
             hp = sp.stack(sf)[:ps - pd.Timedelta(hours=1)] if sf else sp[:ps-pd.Timedelta(hours=1)]
@@ -306,7 +306,9 @@ class NeuralForecastAdapter(ModelAdapter):
             if is_quantile:
                 # Approximate samples from quantiles for CRPS calculation
                 for l, m, h in zip(p10, p50, p90):
-                    samples = np.random.normal(m, (h - l) / 2.56, 100)
+                    # Ensure quantiles are properly ordered and avoid negative scale
+                    scale = max(abs(h - l) / 2.56, 1e-6)  # Use abs() and minimum threshold
+                    samples = np.random.normal(m, scale, 100)
                     all_samples.append(samples)
             else:
                 for m in p50:
@@ -328,9 +330,19 @@ class NeuralForecastAdapter(ModelAdapter):
         return metrics, pdf
 
 class Benchmarker:
-    def __init__(self, csv_path: str, models_to_run: List[str]):
+    def __init__(self, csv_path: str, models_to_run: List[str], dataset: str = None):
         self.csv_path, self.results = csv_path, []
         self.models_to_run = [m.upper() for m in models_to_run]
+        # Infer dataset from path if not provided
+        if dataset is None:
+            if 'nordbyen' in csv_path.lower():
+                self.dataset = 'Heat (Nordbyen)'
+            elif 'centrum' in csv_path.lower():
+                self.dataset = 'Water (Centrum)'
+            else:
+                self.dataset = 'Unknown'
+        else:
+            self.dataset = dataset
         
         # Load optimized params if they exist
         nhits_best = self._load_json("results/best_params_NHITS.json")
@@ -434,6 +446,7 @@ class Benchmarker:
         history_file = "results/benchmark_history.csv"
         for result in self.results:
             result_with_meta = result.copy()
+            result_with_meta['dataset'] = self.dataset
             result_with_meta['timestamp'] = timestamp
             result_with_meta['run_date'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             result_with_meta['n_epochs'] = self.configs[result['Model']].get('n_epochs', 'N/A')
