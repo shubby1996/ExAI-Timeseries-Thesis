@@ -1,0 +1,24 @@
+{
+    "stage": 2,
+    "model": "TIMESNET_Q",
+    "dataset": "heat",
+    "objective": "PICP_calibration",
+    "target_picp": 80.0,
+    "achieved_picp": 0.0,
+    "calibration_error": 80.0,
+    "calibrated_quantiles": [
+        0.3817765108512289,
+        0.5,
+        0.6182234891487711
+    ],
+    "architecture_params": {
+        "hidden_size": 128,
+        "conv_hidden_size": 256,
+        "top_k": 1,
+        "lr": 0.003581748808573514,
+        "dropout": 0.318211849881927
+    },
+    "stage1_mae": 0.08971708258267913,
+    "n_trials": 20,
+    "timestamp": "2025-12-29 16:14:25"
+}

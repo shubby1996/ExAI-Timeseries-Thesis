@@ -1,0 +1,12 @@
+stage,model,dataset,trials,job_id,status,submit_time,start_time,end_time,mae,picp,notes
+1,TIMESNET_Q,water,50,1475012,submitted,2025-12-27 17:11:34,,,,,
+1,NHITS_Q,heat,50,1475013,submitted,2025-12-27 17:12:41,,,,,
+1,NHITS_Q,water,50,1475014,submitted,2025-12-27 17:13:08,,,,,
+1,TIMESNET_Q,heat,50,1475015,submitted,2025-12-27 17:13:29,,,,,
+1,TIMESNET_Q,water,50,1475317,submitted,2025-12-28 15:32:21,,,,,
+1,TIMESNET_Q,heat,50,1475318,submitted,2025-12-28 15:32:30,,,,,
+2,TIMESNET_Q,water,20,1475512,submitted,2025-12-29 01:56:32,,,,,
+2,NHITS_Q,heat,20,1475513,submitted,2025-12-29 01:56:57,,,,,
+2,NHITS_Q,water,20,1475514,submitted,2025-12-29 01:57:05,,,,,
+2,TIMESNET_Q,water,20,1475598,submitted,2025-12-29 13:07:53,,,,,
+2,TIMESNET_Q,heat,20,1475599,submitted,2025-12-29 13:08:03,,,,,

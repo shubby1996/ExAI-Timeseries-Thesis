@@ -1,0 +1,27 @@
+{
+    "stage": 2,
+    "model": "NHITS_Q",
+    "dataset": "heat",
+    "objective": "default_quantiles",
+    "target_picp": 80.0,
+    "achieved_picp": "N/A",
+    "calibration_error": "N/A",
+    "calibrated_quantiles": [
+        0.1,
+        0.5,
+        0.9
+    ],
+    "architecture_params": {
+        "num_stacks": 5,
+        "num_blocks": 2,
+        "num_layers": 1,
+        "layer_widths": 256,
+        "lr": 5.416887321890497e-05,
+        "dropout": 0.0040207982433668205,
+        "weight_decay": 0.0003017515595635882
+    },
+    "stage1_mae": 0.02638157609756001,
+    "n_trials": 20,
+    "timestamp": "2025-12-29 21:00:00",
+    "note": "Using default quantiles [0.1, 0.5, 0.9] due to Stage 2 calibration failure. Original calibration used [0.392, 0.5, 0.608] with 0% PICP (target 80%)."
+}

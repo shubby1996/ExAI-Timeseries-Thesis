@@ -2,7 +2,26 @@
 
 Complete implementation of multi-objective hyperparameter optimization.
 
-## Quick Start
+## Quick Start - NEW NOTEBOOK INTERFACE
+
+**Recommended**: Use the interactive Jupyter notebook for easy job submission and monitoring:
+
+```bash
+jupyter lab hpo/hpo_runner_v2.ipynb
+```
+
+This notebook provides:
+- **Section 4**: Submit all Stage 1 experiments with confirmation prompt
+- **Section 5**: Monitor Stage 1 progress (run periodically)
+- **Section 6**: Submit all Stage 2 experiments (after Stage 1 complete)
+- **Section 7**: Monitor Stage 2 progress
+- **Section 8**: View and compare final results in DataFrames
+
+**Resources**: A100 GPU, 10-hour time limit, 32GB RAM, tinygpu partition
+
+---
+
+## Command-Line Interface (Alternative)
 
 ### Submit All Experiments (Priority Order)
 ```bash
@@ -25,13 +44,22 @@ python hpo/check_status.py --model NHITS_Q --dataset water
 ```
 
 ### Local Testing
+
+First, load the required module:
 ```bash
-# Test Stage 1 (1 trial)
+module load python/pytorch2.6py3.12
+```
+
+Then test:
+```bash
+# Test Stage 1 (1 trial, ~2 minutes)
 python hpo/stage1_architecture.py --model NHITS_Q --dataset water --test
 
-# Test Stage 2 (1 trial)
+# Test Stage 2 (1 trial, requires Stage 1 complete)
 python hpo/stage2_calibration.py --model NHITS_Q --dataset water --test
 ```
+
+**Note**: Training runs on CPU. For faster execution, use SLURM with GPU.
 
 ## Files
 
@@ -233,116 +261,16 @@ python hpo/submit_experiment.py --stage 2 --model NHITS_Q --dataset water
 ### Restart failed experiment
 ```bash
 # Optuna supports resuming from database
-sbatch hpo/hpo_job_v2.slurm TIMESNET quantile water 50
-# Will continue from last checkpoint
-```
 
-## Expected Runtime
-- **NHITS**: ~3-5 hours for 50 trials
-- **TIMESNET**: ~6-10 hours for 50 trials
-- Faster on datasets with less data (water < heat)
+## References
 
-## Next Steps
+- [HPO_STRATEGY.md](HPO_STRATEGY.md) - Complete strategy and implementation guide
+- [STRATEGY_SUMMARY.md](STRATEGY_SUMMARY.md) - Quick reference
+- [benchmark_runner.ipynb](../benchmark_runner.ipynb) - Baseline results comparison
 
-1. ✅ Update strategy document
-2. ✅ Create enhanced tuner with dataset support
-3. ✅ Create SLURM job templates
-4. ✅ Create submission helpers
-5. 🔴 **Submit Batch 1 jobs**
-6. Monitor and analyze results
-7. Submit subsequent batches based on findings
+## Notes
 
-See `HPO_STRATEGY.md` for detailed execution plan. (HPO)
-
-This folder contains scripts for tuning hyperparameters of NHITS and TimesNet models using Optuna.
-
-## Files
-
-- **`hpo_tuner.py`** - Core HPO script that runs Optuna trials
-- **`hpo_runner.ipynb`** - Jupyter notebook for submitting and monitoring HPO jobs
-- **`hpo_job.slurm`** - SLURM job script for running HPO on HPC cluster
-- **`hpo_current_jobs.json`** - Tracks active HPO jobs (auto-generated)
-
-## Usage
-
-### Option 1: Using Jupyter Notebook (Recommended)
-
-Open `hpo_runner.ipynb` from the **project root** directory:
-
-```bash
-cd /path/to/ExAI-Timeseries-Thesis
-jupyter notebook hpo/hpo_runner.ipynb
-```
-
-The notebook provides:
-1. Configuration (models, trials, SLURM settings)
-2. Job submission
-3. Status monitoring
-4. Results viewing
-
-### Option 2: Direct SLURM Submission
-
-From the **hpo/** directory:
-
-```bash
-cd hpo
-sbatch hpo_job.slurm NHITS 50
-sbatch hpo_job.slurm TIMESNET 50
-```
-
-From the **project root**:
-
-```bash
-sbatch hpo/hpo_job.slurm NHITS 50
-```
-
-### Option 3: Direct Python Execution (Local Testing)
-
-From the **project root**:
-
-```bash
-python hpo/hpo_tuner.py NHITS 10
-```
-
-## How It Works
-
-1. **HPO Process**:
-   - Loads data from `processing/nordbyen_processing/nordbyen_features_engineered.csv`
-   - Runs Optuna trials to optimize hyperparameters
-   - Trains models with different hyperparameter combinations
-   - Evaluates on validation set
-   - Saves best parameters to `results/best_params_<MODEL>.json`
-
-2. **Optimized Parameters**:
-   - **NHITS**: `num_stacks`, `num_blocks`, `num_layers`, `layer_widths`, `dropout`, `learning_rate`
-   - **TimesNet**: `top_k`, `d_model`, `d_ff`, `num_kernels`, `dropout`, `learning_rate`
-
-3. **Results Location**:
-   - Best params: `results/best_params_NHITS.json`, `results/best_params_TIMESNET.json`
-   - These are automatically loaded by `benchmarker.py` during full benchmarking
-
-## Configuration
-
-Edit parameters in `hpo_runner.ipynb` or directly in `hpo_tuner.py`:
-
-```python
-N_TRIALS = 50          # Number of optimization trials
-PARTITION = 'rtx3080' # GPU partition
-TIME_LIMIT = '10:00:00' # 10 hours
-```
-
-## Expected Runtime
-
-- **NHITS**: ~30-60 minutes for 50 trials (GPU)
-- **TimesNet**: ~60-90 minutes for 50 trials (GPU)
-
-## Integration with Benchmarking
-
-After HPO completes, the benchmarker automatically uses optimized parameters:
-
-```bash
-cd ../water_centrum_benchmark/scripts
-sbatch benchmark_water_job.slurm
-```
-
-The benchmarker checks for `results/best_params_*.json` and uses those parameters if available.
+- **Multi-objective**: Both MAE and PICP must improve
+- **Quantile models only**: NHITS_Q and TIMESNET_Q (4 experiments total)
+- **Two-stage rationale**: Separates architecture search from calibration to avoid conflating objectives
+- **Baseline PICP issue**: Currently 40-53%, target 80% - this is the critical problem to solve

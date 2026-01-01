@@ -1,0 +1,23 @@
+{
+    "stage": 2,
+    "model": "TIMESNET_Q",
+    "dataset": "heat",
+    "objective": "default_quantiles_with_neuralforecast_defaults",
+    "target_picp": 80.0,
+    "achieved_picp": "N/A",
+    "calibration_error": "N/A",
+    "calibrated_quantiles": [
+        0.1,
+        0.5,
+        0.9
+    ],
+    "architecture_params": {
+        "hidden_size": 64,
+        "conv_hidden_size": 64,
+        "top_k": 5,
+        "lr": 0.0001,
+        "dropout": 0.1
+    },
+    "timestamp": "2025-12-30 14:30:00",
+    "note": "Using CORRECT NeuralForecast built-in defaults (hidden_size=64, conv_hidden_size=64, top_k=5, lr=1e-4=0.0001, dropout=0.1). Previous attempt used benchmarker fallback defaults which had lr=1e-3 (10x too high) and top_k=2 (should be 5), causing continued quantile collapse."
+}

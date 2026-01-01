@@ -1,0 +1,21 @@
+{
+    "stage": 1,
+    "model": "TIMESNET_Q",
+    "dataset": "water",
+    "objective": "MAE",
+    "best_mae": 0.0020223617552103585,
+    "best_params": {
+        "hidden_size": 32,
+        "conv_hidden_size": 128,
+        "top_k": 1,
+        "lr": 0.0005378892954169501,
+        "dropout": 0.031201368252650304
+    },
+    "n_trials": 50,
+    "quantiles": [
+        0.1,
+        0.5,
+        0.9
+    ],
+    "timestamp": "2025-12-28 23:15:16"
+}

@@ -22,7 +22,7 @@ models/*.pt.ckpt
 
 **/*.ipynb
 #allow benchmark_runner
-!hpo_runner.ipynb
+!hpo_runner_v2.ipynb
 !benchmark_comparator.ipynb
 !heat_benchmark_runner.ipynb
 !water_benchmark_runner.ipynb
@@ -37,11 +37,11 @@ models/*.pt.ckpt
 # **/*.csv
 
 #temp ignores
-hpo/check_status.py
-hpo/HPO_STRATEGY.md
-hpo/run_stage1.slurm
-hpo/run_stage2.slurm
-hpo/stage1_architecture.py
-hpo/stage2_calibration.py
-hpo/STRATEGY_SUMMARY.md
-hpo/submit_experiment.py
+# hpo/check_status.py
+# hpo/HPO_STRATEGY.md
+# hpo/run_stage1.slurm
+# hpo/run_stage2.slurm
+# hpo/stage1_architecture.py
+# hpo/stage2_calibration.py
+# hpo/STRATEGY_SUMMARY.md
+# hpo/submit_experiment.py

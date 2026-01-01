@@ -104,19 +104,35 @@ class DartsAdapter(ModelAdapter):
 
         # Switch between quantile (probabilistic) and point (MSE) objectives
         if self.config.get("quantile", True):
-            cp["likelihood"] = QuantileRegression(quantiles=[0.1, 0.5, 0.9])
+            # Use calibrated quantiles from Stage 2 if available, else default
+            default_quantiles = [0.1, 0.5, 0.9]
+            if "best_params" in self.config and self.config["best_params"] is not None:
+                best = self.config["best_params"]
+                # Check for Stage 2 calibrated quantiles
+                if "calibrated_quantiles" in best:
+                    quantiles = best["calibrated_quantiles"]
+                    print(f"  Using calibrated quantiles from Stage 2: {quantiles}")
+                else:
+                    quantiles = default_quantiles
+                    print(f"  Using default quantiles (Stage 2 not run): {quantiles}")
+            else:
+                quantiles = default_quantiles
+                print(f"  Using default quantiles (no HPO): {quantiles}")
+            cp["likelihood"] = QuantileRegression(quantiles=quantiles)
         
         # Override with HPO results if available
         if "best_params" in self.config and self.config["best_params"] is not None:
             best = self.config["best_params"]
+            # Extract architecture params (may be nested under 'architecture_params' in Stage 2)
+            arch_params = best.get("architecture_params", best)
             print(f"  Using optimized hyperparameters from HPO")
             cp.update({
-                "num_stacks": best.get("num_stacks", 3),
-                "num_blocks": best.get("num_blocks", 1),
-                "num_layers": best.get("num_layers", 2),
-                "layer_widths": best.get("layer_widths", 512),
-                "dropout": best.get("dropout", 0.1),
-                "optimizer_kwargs": {"lr": best.get("lr", 1e-3), "weight_decay": best.get("weight_decay", 1e-5)}
+                "num_stacks": arch_params.get("num_stacks", 3),
+                "num_blocks": arch_params.get("num_blocks", 1),
+                "num_layers": arch_params.get("num_layers", 2),
+                "layer_widths": arch_params.get("layer_widths", 512),
+                "dropout": arch_params.get("dropout", 0.1),
+                "optimizer_kwargs": {"lr": arch_params.get("lr", 1e-4), "weight_decay": arch_params.get("weight_decay", 1e-5)}  # FIXED: lr was 1e-3, NeuralForecast default is 1e-4
             })
         else:
             print(f"  Using default hyperparameters (no HPO results found)")
@@ -232,13 +248,31 @@ class NeuralForecastAdapter(ModelAdapter):
         
         print(f"  Training setup: {n_epochs_desired} epochs × {steps_per_epoch} steps/epoch = {max_steps_calculated} total steps")
         
+        # Determine quantiles (use calibrated if available from Stage 2)
+        default_quantiles = [0.1, 0.5, 0.9]
+        if self.config.get("quantile", True):
+            if "best_params" in self.config and self.config["best_params"] is not None:
+                best = self.config["best_params"]
+                # Check for Stage 2 calibrated quantiles
+                if "calibrated_quantiles" in best:
+                    quantiles = best["calibrated_quantiles"]
+                    print(f"  Using calibrated quantiles from Stage 2: {quantiles}")
+                else:
+                    quantiles = default_quantiles
+                    print(f"  Using default quantiles (Stage 2 not run): {quantiles}")
+            else:
+                quantiles = default_quantiles
+                print(f"  Using default quantiles (no HPO): {quantiles}")
+        else:
+            quantiles = default_quantiles
+        
         # Baseline core params
         model_params = {
             "h": 24,
             "input_size": 168,
             "futr_exog_list": futr_ex,  # All exogenous treated as future (weather assumed forecasted)
             "scaler_type": "robust",     # Robust scaling for exogenous variables
-            "loss": MQLoss(quantiles=[0.1, 0.5, 0.9]) if self.config.get("quantile", True) else MSE(),
+            "loss": MQLoss(level=quantiles) if self.config.get("quantile", True) else MSE(),
             "max_steps": max_steps_calculated,
             "batch_size": batch_size,
             # PyTorch Lightning Trainer parameters (passed directly, not via trainer_kwargs)
@@ -249,14 +283,22 @@ class NeuralForecastAdapter(ModelAdapter):
         # Override with HPO results if available
         if "best_params" in self.config and self.config["best_params"] is not None:
             best = self.config["best_params"]
+            # Extract architecture params (may be nested under 'architecture_params' in Stage 2)
+            arch_params = best.get("architecture_params", best)
             print(f"  Using optimized hyperparameters from HPO")
+            print(f"  DEBUG best_params keys: {list(best.keys())}")
+            print(f"  DEBUG arch_params keys: {list(arch_params.keys())}")
+            print(f"  DEBUG arch_params values: {arch_params}")
+            
+            # CRITICAL FIX: Use correct NeuralForecast defaults as fallback
             model_params.update({
-                "hidden_size": best.get("hidden_size", 64),
-                "conv_hidden_size": best.get("conv_hidden_size", 64),
-                "top_k": best.get("top_k", 2),
-                "learning_rate": best.get("lr", 1e-3),
-                "dropout": best.get("dropout", 0.1)
+                "hidden_size": arch_params.get("hidden_size", 64),
+                "conv_hidden_size": arch_params.get("conv_hidden_size", 64),
+                "top_k": arch_params.get("top_k", 5),  # FIXED: was 2, NeuralForecast default is 5
+                "learning_rate": arch_params.get("lr", 1e-4),  # FIXED: was 1e-3, NeuralForecast default is 1e-4
+                "dropout": arch_params.get("dropout", 0.1)
             })
+            print(f"  DEBUG final model_params: hidden_size={model_params['hidden_size']}, top_k={model_params['top_k']}, lr={model_params['learning_rate']}, dropout={model_params['dropout']}")
         else:
             print(f"  Using default hyperparameters (no HPO results found)")
             
@@ -283,6 +325,12 @@ class NeuralForecastAdapter(ModelAdapter):
             if len(hist_df) < 168 or len(fut_df) < 24: break
             
             fcst = self.model.predict(df=hist_df.reset_index(drop=True), futr_df=fut_df.reset_index(drop=True))
+            
+            # DEBUG: Print columns on first iteration
+            if i == 0:
+                print(f"  DEBUG: Prediction columns: {fcst.columns.tolist()}")
+                print(f"  DEBUG: First row of predictions: {fcst.iloc[0].to_dict()}")
+            
             def find_col(suffixes):
                 for s in suffixes:
                     for c in fcst.columns:
@@ -290,7 +338,34 @@ class NeuralForecastAdapter(ModelAdapter):
                 return None
 
             if is_quantile:
-                cm, cl, ch = find_col(['median', '-q-0.5']), find_col(['-lo-80.0', '-q-0.1']), find_col(['-hi-80.0', '-q-0.9'])
+                # Search for quantile columns - handle multiple naming conventions:
+                # - NeuralForecast MQLoss: ModelName-lo-0.1, ModelName-median, ModelName-hi-0.9
+                # - Legacy format: ModelName-lo-80.0, ModelName-median, ModelName-hi-80.0
+                # - Alternative: ModelName-q-0.1, ModelName-q-0.5, ModelName-q-0.9
+                cm = find_col(['median', '-median', '-q-0.5'])
+                cl = find_col(['-lo-0.1', '-lo-80.0', '-q-0.1'])
+                ch = find_col(['-hi-0.9', '-hi-80.0', '-q-0.9'])
+                
+                # DEBUG: Print what columns were found AND their actual values
+                if i == 0:
+                    print(f"  DEBUG: Found median column: {cm}")
+                    print(f"  DEBUG: Found lo column: {cl}")
+                    print(f"  DEBUG: Found hi column: {ch}")
+                    if cl and ch and cm:
+                        # Print first value from each to verify correct order
+                        lo_val = fcst[cl].iloc[0]
+                        med_val = fcst[cm].iloc[0]
+                        hi_val = fcst[ch].iloc[0]
+                        print(f"  DEBUG: First prediction values:")
+                        print(f"         {cl} = {lo_val:.6f}")
+                        print(f"         {cm} = {med_val:.6f}")
+                        print(f"         {ch} = {hi_val:.6f}")
+                        is_correct = lo_val < med_val < hi_val
+                        if is_correct:
+                            print(f"  DEBUG: ✓ Quantile order is CORRECT (lo < med < hi)")
+                        else:
+                            print(f"  DEBUG: ✗ Quantile order is WRONG - model may have training issue!")
+                
                 p50 = fcst[cm].values.tolist() if cm else fcst.iloc[:, -1].values.tolist()
                 p10 = fcst[cl].values.tolist() if cl else p50
                 p90 = fcst[ch].values.tolist() if ch else p50
@@ -330,9 +405,10 @@ class NeuralForecastAdapter(ModelAdapter):
         return metrics, pdf
 
 class Benchmarker:
-    def __init__(self, csv_path: str, models_to_run: List[str], dataset: str = None):
+    def __init__(self, csv_path: str, models_to_run: List[str], dataset: str = None, results_dir: str = "results"):
         self.csv_path, self.results = csv_path, []
         self.models_to_run = [m.upper() for m in models_to_run]
+        self.results_dir = results_dir  # Dataset-specific results directory
         # Infer dataset from path if not provided
         if dataset is None:
             if 'nordbyen' in csv_path.lower():
@@ -344,18 +420,22 @@ class Benchmarker:
         else:
             self.dataset = dataset
         
-        # Load optimized params if they exist
-        nhits_best = self._load_json("results/best_params_NHITS.json")
-        timesnet_best = self._load_json("results/best_params_TIMESNET.json")
+        # DISABLED: Do not load HPO parameters - use defaults only
+        # Stage 2 calibrated quantiles were causing model failures
+        # If you want to re-enable HPO, uncomment the lines below:
+        # nhits_q_best = self._load_json(f"{results_dir}/best_params_NHITS_Q.json") or self._load_json("results/best_params_NHITS_Q.json")
+        # timesnet_q_best = self._load_json(f"{results_dir}/best_params_TIMESNET_Q.json") or self._load_json("results/best_params_TIMESNET_Q.json")
+        nhits_q_best = None
+        timesnet_q_best = None
         
         self.configs = {
-            "NHITS_Q": {"type": "NHITS", "quantile": True, "n_epochs": 100, "best_params": nhits_best},
+            "NHITS_Q": {"type": "NHITS", "quantile": True, "n_epochs": 100, "best_params": nhits_q_best},
             "NHITS_MSE": {"type": "NHITS", "quantile": False, "n_epochs": 100, "best_params": None},
-            "TIMESNET_Q": {"type": "TIMESNET", "quantile": True, "n_epochs": 150, "best_params": timesnet_best},
+            "TIMESNET_Q": {"type": "TIMESNET", "quantile": True, "n_epochs": 150, "best_params": timesnet_q_best},
             "TIMESNET_MSE": {"type": "TIMESNET", "quantile": False, "n_epochs": 150, "best_params": None},
             # Backward-compatible aliases
-            "NHITS": {"type": "NHITS", "quantile": True, "n_epochs": 100, "best_params": nhits_best},
-            "TIMESNET": {"type": "TIMESNET", "quantile": True, "n_epochs": 150, "best_params": timesnet_best},
+            "NHITS": {"type": "NHITS", "quantile": True, "n_epochs": 100, "best_params": nhits_q_best},
+            "TIMESNET": {"type": "TIMESNET", "quantile": True, "n_epochs": 150, "best_params": timesnet_q_best},
         }
 
     def _load_json(self, path: str):
@@ -421,8 +501,11 @@ class Benchmarker:
             metrics, pdf = adapter.evaluate(self.csv_path, "2020-01-01 00:00:00+00:00")
             metrics["Model"] = mk; self.results.append(metrics)
             
+            # Save predictions to both project root and dataset-specific folders
             os.makedirs("results", exist_ok=True)
+            os.makedirs(self.results_dir, exist_ok=True)
             pdf.to_csv(f"results/{mk}_predictions.csv", index=False)
+            pdf.to_csv(f"{self.results_dir}/{mk}_predictions.csv", index=False)
             print(f"Saved full predictions for {mk} to results/{mk}_predictions.csv")
             
         report_df = pd.DataFrame(self.results)
@@ -431,19 +514,25 @@ class Benchmarker:
         
         # Save results with timestamp for historical tracking
         os.makedirs("results", exist_ok=True)
+        os.makedirs(self.results_dir, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
-        # Save current results (overwrite)
+        # Save current results (overwrite) - to both locations
         report_df.to_csv("results/benchmark_results.csv", index=False)
+        report_df.to_csv(f"{self.results_dir}/benchmark_results.csv", index=False)
         
-        # Save timestamped copy for history
+        # Save timestamped copy for history - to both locations
         report_df.to_csv(f"results/benchmark_results_{timestamp}.csv", index=False)
+        report_df.to_csv(f"{self.results_dir}/benchmark_results_{timestamp}.csv", index=False)
         print(f"\n✓ Results saved:")
         print(f"  - Current: results/benchmark_results.csv")
+        print(f"  - Current: {self.results_dir}/benchmark_results.csv")
         print(f"  - History: results/benchmark_results_{timestamp}.csv")
+        print(f"  - History: {self.results_dir}/benchmark_results_{timestamp}.csv")
         
-        # Append to history file with metadata
+        # Append to history file with metadata - to both locations
         history_file = "results/benchmark_history.csv"
+        dataset_history_file = f"{self.results_dir}/benchmark_history.csv"
         for result in self.results:
             result_with_meta = result.copy()
             result_with_meta['dataset'] = self.dataset
@@ -453,18 +542,55 @@ class Benchmarker:
             result_with_meta['has_hpo'] = self.configs[result['Model']].get('best_params') is not None
             
             history_df = pd.DataFrame([result_with_meta])
+            # Save to project root
             if os.path.exists(history_file):
                 history_df.to_csv(history_file, mode='a', header=False, index=False)
             else:
                 history_df.to_csv(history_file, index=False)
+            # Save to dataset-specific folder
+            if os.path.exists(dataset_history_file):
+                history_df.to_csv(dataset_history_file, mode='a', header=False, index=False)
+            else:
+                history_df.to_csv(dataset_history_file, index=False)
         
         print(f"  - History: {history_file} (cumulative)")
+        print(f"  - History: {dataset_history_file} (cumulative)")
         
         # Print summary of improvements if history exists
         if os.path.exists(history_file):
             self._print_improvement_summary(history_file)
 
 if __name__ == "__main__":
-    models = sys.argv[1:] if len(sys.argv) > 1 else ["NHITS_Q", "NHITS_MSE", "TIMESNET_Q", "TIMESNET_MSE"]
-    csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "processing", "nordbyen_processing", "nordbyen_features_engineered.csv")
-    Benchmarker(csv_path, models).run()
+    # Usage: python benchmarker.py [dataset] [models...]
+    # Examples:
+    #   python benchmarker.py water_centrum NHITS_Q TIMESNET_Q
+    #   python benchmarker.py nordbyen_heat NHITS_Q NHITS_MSE
+    #   python benchmarker.py  # defaults to nordbyen_heat with all models
+    
+    if len(sys.argv) > 1 and sys.argv[1] in ['water_centrum', 'nordbyen_heat']:
+        dataset_name = sys.argv[1]
+        models = sys.argv[2:] if len(sys.argv) > 2 else ["NHITS_Q", "NHITS_MSE", "TIMESNET_Q", "TIMESNET_MSE"]
+    else:
+        dataset_name = "nordbyen_heat"
+        models = sys.argv[1:] if len(sys.argv) > 1 else ["NHITS_Q", "NHITS_MSE", "TIMESNET_Q", "TIMESNET_MSE"]
+    
+    # Configure dataset-specific paths
+    if dataset_name == "water_centrum":
+        csv_path = "processing/centrum_processing/centrum_features_engineered_from_2018-04-01.csv"
+        dataset_display = "Water (Centrum)"
+        results_dir = "water_centrum_benchmark/results"
+    else:  # nordbyen_heat
+        csv_path = "processing/nordbyen_processing/nordbyen_features_engineered.csv"
+        dataset_display = "Heat (Nordbyen)"
+        results_dir = "nordbyen_heat_benchmark/results"
+    
+    print(f"\n{'='*70}")
+    print(f"BENCHMARKER - {dataset_display}")
+    print(f"{'='*70}")
+    print(f"Data: {csv_path}")
+    print(f"Models: {', '.join(models)}")
+    print(f"Results: {results_dir}")
+    print(f"{'='*70}\n")
+    
+    Benchmarker(csv_path, models, dataset=dataset_display, results_dir=results_dir).run()
+

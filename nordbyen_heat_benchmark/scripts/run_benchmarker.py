@@ -47,12 +47,15 @@ def main():
     print("="*70)
     
     # Initialize and run benchmarker
-    benchmarker = Benchmarker(DATA_PATH, MODELS_TO_RUN, dataset="Heat (Nordbyen)")
+    # results_dir points to nordbyen_heat_benchmark/results for dataset-specific storage
+    benchmarker = Benchmarker(DATA_PATH, MODELS_TO_RUN, dataset="Heat (Nordbyen)", results_dir="nordbyen_heat_benchmark/results")
     benchmarker.run()
     
     print("\n" + "="*70)
     print("Benchmarker Complete!")
-    print("Results saved to: results/benchmark_results.csv")
+    print("Results saved to:")
+    print("  - Project root: results/benchmark_results.csv")
+    print("  - Dataset-specific: nordbyen_heat_benchmark/results/benchmark_results.csv")
     print("="*70)
     
     return 0

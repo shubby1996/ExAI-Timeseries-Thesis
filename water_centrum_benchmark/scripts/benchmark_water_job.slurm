@@ -31,14 +31,14 @@ echo "Start Time: $(date)"
 echo "Working Dir: $(pwd)"
 echo "=========================================="
 
-# Change to project root (parent of water_centrum_benchmark/)
-cd "${SLURM_SUBMIT_DIR}/../.."
+# Go to project root
+cd /home/hpc/iwi5/iwi5389h/ExAI-Timeseries-Thesis
 
 echo "Changed to project root: $(pwd)"
 echo ""
 
-# Run the water benchmarker (from project root)
-python3 water_centrum_benchmark/scripts/run_benchmarker_water.py --models $MODELS
+# Run the benchmarker directly using benchmarker.py
+python benchmarker.py water_centrum $MODELS
 
 echo ""
 echo "=========================================="

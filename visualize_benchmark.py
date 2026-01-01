@@ -26,7 +26,8 @@ def compute_metrics(df):
         # Approximate samples from quantiles assuming normal distribution
         p10, p50, p90 = row['p10'], row['p50'], row['p90']
         # 80% interval ≈ 1.28*2*std
-        std = (p90 - p10) / 2.56
+        # Use abs() to handle collapsed quantiles and ensure positive std
+        std = max(abs(p90 - p10) / 2.56, 1e-6)  # Minimum threshold to avoid zero
         samples = np.random.normal(p50, std, 100)
         crps_values.append(crps_ensemble(row['actual'], samples))
     crps = np.mean(crps_values)
@@ -151,7 +152,7 @@ def main():
     if results:
         summary = pd.DataFrame({m: r['metrics'] for m, r in results.items()}).T
         print("\nModel Comparison Metrics:")
-        print(summary.round(3))
+        print(summary)  # Show full precision
         summary.to_csv("results/benchmark_metrics_comparison.csv")
 
         # Bar plots for metrics comparison

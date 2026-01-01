@@ -1,4 +1,50 @@
 {
-  "NHITS": "1471742",
-  "TIMESNET": "1471743"
+  "water_timesnet_q": {
+    "job_id": "1475317",
+    "stage": 1,
+    "status": "submitted",
+    "priority": 1
+  },
+  "heat_nhits_q": {
+    "job_id": "1475013",
+    "stage": 1,
+    "status": "submitted",
+    "priority": 2
+  },
+  "water_nhits_q": {
+    "job_id": "1475014",
+    "stage": 1,
+    "status": "submitted",
+    "priority": 3
+  },
+  "heat_timesnet_q": {
+    "job_id": "1475318",
+    "stage": 1,
+    "status": "submitted",
+    "priority": 4
+  },
+  "water_timesnet_q_s2": {
+    "job_id": "1475598",
+    "stage": 2,
+    "status": "submitted",
+    "priority": 1
+  },
+  "heat_nhits_q_s2": {
+    "job_id": "1475513",
+    "stage": 2,
+    "status": "submitted",
+    "priority": 2
+  },
+  "water_nhits_q_s2": {
+    "job_id": "1475514",
+    "stage": 2,
+    "status": "submitted",
+    "priority": 3
+  },
+  "heat_timesnet_q_s2": {
+    "job_id": "1475599",
+    "stage": 2,
+    "status": "submitted",
+    "priority": 4
+  }
 }

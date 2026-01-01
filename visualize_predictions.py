@@ -40,11 +40,19 @@ def plot_actual_vs_predicted(predictions_df: pd.DataFrame, save_path: str, n_sam
     
     ax.plot(df_subset['timestamp'], df_subset['actual'], 
             label='Actual', color='#2E86AB', linewidth=2, alpha=0.8)
-    ax.plot(df_subset['timestamp'], df_subset['predicted'], 
+    
+    # Use p50 as predicted if available, else use 'predicted'
+    pred_col = 'p50' if 'p50' in df_subset.columns else 'predicted'
+    ax.plot(df_subset['timestamp'], df_subset[pred_col], 
             label='Predicted (Median)', color='#A23B72', linewidth=2, alpha=0.8, linestyle='--')
     
-    # Add confidence interval if available
-    if 'predicted_low' in df_subset.columns and 'predicted_high' in df_subset.columns:
+    # Add confidence interval if available (check for p10/p90 or predicted_low/predicted_high)
+    if 'p10' in df_subset.columns and 'p90' in df_subset.columns:
+        ax.fill_between(df_subset['timestamp'], 
+                        df_subset['p10'], 
+                        df_subset['p90'],
+                        color='#A23B72', alpha=0.2, label='10-90% Confidence Interval')
+    elif 'predicted_low' in df_subset.columns and 'predicted_high' in df_subset.columns:
         ax.fill_between(df_subset['timestamp'], 
                         df_subset['predicted_low'], 
                         df_subset['predicted_high'],
@@ -146,15 +154,24 @@ def plot_daily_comparison(predictions_df: pd.DataFrame, save_path: str, day_offs
     
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10))
     
-    # Plot 1: Time series comparison
+    # Plot 1: Time series comparison with intervals
     hours = list(range(24))
+    
+    # Use p50 as predicted if available, else use 'predicted'
+    pred_col = 'p50' if 'p50' in df_day.columns else 'predicted'
+    
     ax1.plot(hours, df_day['actual'].values, 
              label='Actual', marker='o', color='#2E86AB', linewidth=2.5, markersize=8)
-    ax1.plot(hours, df_day['predicted'].values, 
+    ax1.plot(hours, df_day[pred_col].values, 
              label='Predicted', marker='s', color='#A23B72', linewidth=2.5, markersize=8, alpha=0.8)
     
-    # Add confidence interval if available
-    if 'predicted_low' in df_day.columns and 'predicted_high' in df_day.columns:
+    # Add confidence interval (check for p10/p90 or predicted_low/predicted_high)
+    if 'p10' in df_day.columns and 'p90' in df_day.columns:
+        ax1.fill_between(hours, 
+                        df_day['p10'].values, 
+                        df_day['p90'].values,
+                        color='#A23B72', alpha=0.2, label='10-90% Confidence')
+    elif 'predicted_low' in df_day.columns and 'predicted_high' in df_day.columns:
         ax1.fill_between(hours, 
                         df_day['predicted_low'].values, 
                         df_day['predicted_high'].values,

@@ -1,0 +1,27 @@
+{
+    "stage": 2,
+    "model": "NHITS_Q",
+    "dataset": "water",
+    "objective": "default_quantiles",
+    "target_picp": 80.0,
+    "achieved_picp": "N/A",
+    "calibration_error": "N/A",
+    "calibrated_quantiles": [
+        0.1,
+        0.5,
+        0.9
+    ],
+    "architecture_params": {
+        "num_stacks": 5,
+        "num_blocks": 1,
+        "num_layers": 3,
+        "layer_widths": 1024,
+        "lr": 1.5115619579923047e-05,
+        "dropout": 0.43958604864997497,
+        "weight_decay": 5.026562176787514e-05
+    },
+    "stage1_mae": 0.07258844008477626,
+    "n_trials": 25,
+    "timestamp": "2025-12-29 21:00:00",
+    "note": "Using default quantiles [0.1, 0.5, 0.9] due to Stage 2 calibration failure. Original calibration used [0.372, 0.5, 0.628] with 36% PICP (target 80%)."
+}

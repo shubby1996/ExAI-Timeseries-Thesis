@@ -1,0 +1,25 @@
+{
+    "stage": 2,
+    "model": "TIMESNET_Q",
+    "dataset": "water",
+    "objective": "default_quantiles",
+    "target_picp": 80.0,
+    "achieved_picp": "N/A",
+    "calibration_error": "N/A",
+    "calibrated_quantiles": [
+        0.1,
+        0.5,
+        0.9
+    ],
+    "architecture_params": {
+        "hidden_size": 32,
+        "conv_hidden_size": 128,
+        "top_k": 1,
+        "lr": 0.0005378892954169501,
+        "dropout": 0.031201368252650304
+    },
+    "stage1_mae": 0.0020223617552103585,
+    "n_trials": 20,
+    "timestamp": "2025-12-29 21:00:00",
+    "note": "Using default quantiles [0.1, 0.5, 0.9] due to Stage 2 calibration failure. Original calibration collapsed to [0.475, 0.5, 0.525] with 0% PICP."
+}

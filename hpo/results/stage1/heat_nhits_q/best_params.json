@@ -1,0 +1,23 @@
+{
+    "stage": 1,
+    "model": "NHITS_Q",
+    "dataset": "heat",
+    "objective": "MAE",
+    "best_mae": 0.02638157609756001,
+    "best_params": {
+        "num_stacks": 5,
+        "num_blocks": 2,
+        "num_layers": 1,
+        "layer_widths": 256,
+        "lr": 5.416887321890497e-05,
+        "dropout": 0.0040207982433668205,
+        "weight_decay": 0.0003017515595635882
+    },
+    "n_trials": 50,
+    "quantiles": [
+        0.1,
+        0.5,
+        0.9
+    ],
+    "timestamp": "2025-12-27 21:01:48"
+}

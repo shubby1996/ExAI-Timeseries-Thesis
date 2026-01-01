@@ -19,23 +19,25 @@ print(f"\n[TEST MODE] Using reduced epochs for quick validation")
 print(f"[TEST MODE] Testing all 4 model variants")
 print(f"[TEST MODE] Expected runtime: ~10-12 minutes\n")
 
-# Test all 4 model variants
-models_to_test = ["NHITS_Q", "NHITS_MSE", "TIMESNET_Q", "TIMESNET_MSE"]
+# Test only _Q models (with Stage 2 HPO params)
+models_to_test = ["NHITS_Q", "TIMESNET_Q"]
 benchmarker_instance = Benchmarker(
     "processing/nordbyen_processing/nordbyen_features_engineered.csv",
-    models_to_test
+    models_to_test,
+    dataset="Heat (Nordbyen)",
+    results_dir="nordbyen_heat_benchmark/results"
 )
 
 # Override configs with minimal epochs for testing
 benchmarker_instance.configs["NHITS_Q"]["n_epochs"] = 3
-benchmarker_instance.configs["NHITS_MSE"]["n_epochs"] = 3
+# benchmarker_instance.configs["NHITS_MSE"]["n_epochs"] = 3
 benchmarker_instance.configs["TIMESNET_Q"]["n_epochs"] = 2
-benchmarker_instance.configs["TIMESNET_MSE"]["n_epochs"] = 2
+# benchmarker_instance.configs["TIMESNET_MSE"]["n_epochs"] = 2
 
 print(f"[TEST MODE] NHITS_Q (quantile) will use n_epochs=3")
-print(f"[TEST MODE] NHITS_MSE (deterministic) will use n_epochs=3")
+# print(f"[TEST MODE] NHITS_MSE (deterministic) will use n_epochs=3")
 print(f"[TEST MODE] TIMESNET_Q (quantile) will use n_epochs=2")
-print(f"[TEST MODE] TIMESNET_MSE (deterministic) will use n_epochs=2")
+# print(f"[TEST MODE] TIMESNET_MSE (deterministic) will use n_epochs=2")
 
 try:
     benchmarker_instance.run()

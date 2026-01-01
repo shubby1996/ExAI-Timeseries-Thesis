@@ -45,12 +45,15 @@ def main():
     print("="*70)
     
     # Initialize and run benchmarker
-    benchmarker = Benchmarker(DATA_PATH, MODELS_TO_RUN, dataset="Water (Centrum)")
+    # results_dir points to water_centrum_benchmark/results for dataset-specific storage
+    benchmarker = Benchmarker(DATA_PATH, MODELS_TO_RUN, dataset="Water (Centrum)", results_dir="water_centrum_benchmark/results")
     benchmarker.run()
     
     print("\n" + "="*70)
     print("Water Consumption Benchmarker Complete!")
-    print("Results saved to: ../results/benchmark_results.csv")
+    print("Results saved to:")
+    print("  - Project root: results/benchmark_results.csv")
+    print("  - Dataset-specific: water_centrum_benchmark/results/benchmark_results.csv")
     print("="*70)
     
     return 0

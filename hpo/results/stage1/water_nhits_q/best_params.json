@@ -1,0 +1,23 @@
+{
+    "stage": 1,
+    "model": "NHITS_Q",
+    "dataset": "water",
+    "objective": "MAE",
+    "best_mae": 0.07258844008477626,
+    "best_params": {
+        "num_stacks": 5,
+        "num_blocks": 1,
+        "num_layers": 3,
+        "layer_widths": 1024,
+        "lr": 1.5115619579923047e-05,
+        "dropout": 0.43958604864997497,
+        "weight_decay": 5.026562176787514e-05
+    },
+    "n_trials": 53,
+    "quantiles": [
+        0.1,
+        0.5,
+        0.9
+    ],
+    "timestamp": "2025-12-27 19:34:35"
+}
