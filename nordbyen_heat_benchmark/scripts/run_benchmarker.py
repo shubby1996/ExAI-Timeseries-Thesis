@@ -29,7 +29,7 @@ from benchmarker import Benchmarker
 def main():
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description='Run benchmarking for specified models')
-    parser.add_argument('--models', nargs='+', default=["NHITS", "TIMESNET"],
+    parser.add_argument('--models', nargs='+', default=["NHITS_Q", "TIMESNET_Q"],
                         help='Models to benchmark (e.g., --models NHITS TIMESNET)')
     parser.add_argument('--data', default="processing/nordbyen_processing/nordbyen_features_engineered.csv",
                         help='Path to the data CSV file')
@@ -52,7 +52,10 @@ def main():
     
     print("\n" + "="*70)
     print("Benchmarker Complete!")
-    print("Results saved to: results/benchmark_results.csv")
+    print(f"Results saved to: nordbyen_heat_benchmark/results/")
+    print(f"  - Timestamped results: benchmark_results_*_Heat_Nordbyen_{benchmarker.job_id}.csv")
+    print(f"  - Predictions: *_predictions_{benchmarker.job_id}.csv")
+    print(f"  - Global history: results/benchmark_history.csv")
     print("="*70)
     
     return 0

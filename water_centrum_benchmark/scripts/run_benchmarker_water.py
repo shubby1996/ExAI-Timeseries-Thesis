@@ -50,7 +50,10 @@ def main():
     
     print("\n" + "="*70)
     print("Water Consumption Benchmarker Complete!")
-    print("Results saved to: ../results/benchmark_results.csv")
+    print(f"Results saved to: water_centrum_benchmark/results/")
+    print(f"  - Timestamped results: benchmark_results_*_Water_Centrum_{benchmarker.job_id}.csv")
+    print(f"  - Predictions: *_predictions_{benchmarker.job_id}.csv")
+    print(f"  - Global history: results/benchmark_history.csv")
     print("="*70)
     
     return 0
