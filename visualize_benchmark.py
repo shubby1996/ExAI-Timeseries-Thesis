@@ -1,9 +1,31 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 import os
+import sys
+import glob
 import seaborn as sns
 import numpy as np
 from properscoring import crps_ensemble
+
+
+def find_latest_prediction_file(results_dir, model_name):
+    """Find the latest prediction file for a given model.
+    
+    Looks for files matching: {model_name}_predictions_*.csv
+    Returns the most recent one based on filename (job ID or 'local').
+    """
+    pattern = os.path.join(results_dir, f"{model_name}_predictions_*.csv")
+    matching_files = glob.glob(pattern)
+    
+    if not matching_files:
+        # Fallback to old format without job ID
+        old_format = os.path.join(results_dir, f"{model_name}_predictions.csv")
+        if os.path.exists(old_format):
+            return old_format
+        return None
+    
+    # Return the most recent file (sorted by filename)
+    return sorted(matching_files)[-1]
 
 
 def compute_errors(df):
@@ -126,25 +148,41 @@ def plot_error_over_time(df, model_name, save_path):
 
 
 def main():
+    # Accept results directory as command-line argument
+    results_dir = sys.argv[1] if len(sys.argv) > 1 else "results"
+    
+    # Ensure results directory exists
+    if not os.path.exists(results_dir):
+        print(f"Error: Results directory not found: {results_dir}")
+        return
+    
+    print(f"Visualizing results from: {results_dir}")
+    
     sns.set_theme(style="whitegrid")
     models = ["NHITS_Q", "TIMESNET_Q", "NHITS_MSE", "TIMESNET_MSE"]
     results = {}
+    
     for model in models:
-        path = f"results/{model}_predictions.csv"
-        if not os.path.exists(path):
-            print(f"File not found: {path}")
+        # Find latest prediction file for this model
+        pred_file = find_latest_prediction_file(results_dir, model)
+        
+        if pred_file is None:
+            print(f"File not found for {model} in {results_dir}")
             continue
-        df = pd.read_csv(path)
+            
+        print(f"Loading {model} from: {pred_file}")
+        df = pd.read_csv(pred_file)
         df['timestamp'] = pd.to_datetime(df['timestamp'])
         df = compute_errors(df)
         metrics = compute_metrics(df)
         results[model] = {'df': df, 'metrics': metrics}
-        # Plots for each model
-        plot_time_series(df, model, f"results/{model.lower()}_timeseries.png")
-        plot_error_histogram(df, model, f"results/{model.lower()}_error_hist.png")
-        plot_scatter(df, model, metrics, f"results/{model.lower()}_scatter.png")
-        plot_daily_pattern(df, model, f"results/{model.lower()}_daily_pattern.png")
-        plot_error_over_time(df, model, f"results/{model.lower()}_error_over_time.png")
+        
+        # Plots for each model - save to same results directory
+        plot_time_series(df, model, os.path.join(results_dir, f"{model.lower()}_timeseries.png"))
+        plot_error_histogram(df, model, os.path.join(results_dir, f"{model.lower()}_error_hist.png"))
+        plot_scatter(df, model, metrics, os.path.join(results_dir, f"{model.lower()}_scatter.png"))
+        plot_daily_pattern(df, model, os.path.join(results_dir, f"{model.lower()}_daily_pattern.png"))
+        plot_error_over_time(df, model, os.path.join(results_dir, f"{model.lower()}_error_over_time.png"))
 
 
     # Comparative summary table and metrics bar plots
@@ -152,7 +190,7 @@ def main():
         summary = pd.DataFrame({m: r['metrics'] for m, r in results.items()}).T
         print("\nModel Comparison Metrics:")
         print(summary.round(3))
-        summary.to_csv("results/benchmark_metrics_comparison.csv")
+        summary.to_csv(os.path.join(results_dir, "benchmark_metrics_comparison.csv"))
 
         # Bar plots for metrics comparison
         metrics_to_plot = ['MAE', 'RMSE', 'MAPE', 'PICP', 'MIW', 'CRPS']
@@ -171,8 +209,8 @@ def main():
             for j in range(len(metrics_to_plot), len(axes)):
                 axes[j].set_visible(False)
         plt.tight_layout()
-        plt.savefig("results/benchmark_metrics_barplots.png", dpi=300)
-        print("Bar plots for metrics saved to results/benchmark_metrics_barplots.png")
+        plt.savefig(os.path.join(results_dir, "benchmark_metrics_barplots.png"), dpi=300)
+        print(f"Bar plots for metrics saved to {os.path.join(results_dir, 'benchmark_metrics_barplots.png')}")
         plt.close()
 
         # Box plots for prediction distributions
@@ -193,8 +231,8 @@ def main():
         plt.ylabel('Heat Consumption (Scaled)')
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
-        plt.savefig("results/benchmark_boxplots.png", dpi=300)
-        print("Box plots for predictions saved to results/benchmark_boxplots.png")
+        plt.savefig(os.path.join(results_dir, "benchmark_boxplots.png"), dpi=300)
+        print(f"Box plots for predictions saved to {os.path.join(results_dir, 'benchmark_boxplots.png')}")
         plt.close()
 
     # Side-by-side time series plot
@@ -213,8 +251,8 @@ def main():
         axes[i].tick_params(axis='x', rotation=45)
     axes[0].set_ylabel("Heat Consumption (Scaled)")
     plt.tight_layout()
-    plt.savefig("results/benchmark_comparison_sidebyside.png", dpi=300)
-    print("Side-by-side comparison plot saved to results/benchmark_comparison_sidebyside.png")
+    plt.savefig(os.path.join(results_dir, "benchmark_comparison_sidebyside.png"), dpi=300)
+    print(f"Side-by-side comparison plot saved to {os.path.join(results_dir, 'benchmark_comparison_sidebyside.png')}")
     plt.show()
 
 if __name__ == "__main__":

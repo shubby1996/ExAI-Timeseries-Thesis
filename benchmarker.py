@@ -344,6 +344,17 @@ class Benchmarker:
         else:
             self.dataset = dataset
         
+        # Determine dataset-specific results folder
+        if 'nordbyen' in csv_path.lower() or 'heat' in self.dataset.lower():
+            self.dataset_results_folder = 'nordbyen_heat_benchmark/results'
+        elif 'centrum' in csv_path.lower() or 'water' in self.dataset.lower():
+            self.dataset_results_folder = 'water_centrum_benchmark/results'
+        else:
+            self.dataset_results_folder = 'results/unknown_dataset'
+        
+        # Get job ID from environment (SLURM) or use 'local' for local runs
+        self.job_id = os.environ.get('SLURM_JOB_ID', 'local')
+        
         # Load optimized params if they exist
         nhits_best = self._load_json("results/best_params_NHITS.json")
         timesnet_best = self._load_json("results/best_params_TIMESNET.json")
@@ -421,9 +432,12 @@ class Benchmarker:
             metrics, pdf = adapter.evaluate(self.csv_path, "2020-01-01 00:00:00+00:00")
             metrics["Model"] = mk; self.results.append(metrics)
             
-            os.makedirs("results", exist_ok=True)
-            pdf.to_csv(f"results/{mk}_predictions.csv", index=False)
-            print(f"Saved full predictions for {mk} to results/{mk}_predictions.csv")
+            # Save predictions to dataset-specific folder with job ID
+            os.makedirs(self.dataset_results_folder, exist_ok=True)
+            predictions_filename = f"{mk}_predictions_{self.job_id}.csv"
+            predictions_path = os.path.join(self.dataset_results_folder, predictions_filename)
+            pdf.to_csv(predictions_path, index=False)
+            print(f"Saved full predictions for {mk} to {predictions_path}")
             
         report_df = pd.DataFrame(self.results)
         print("\n" + "="*70 + "\nBENCHMARK RESULTS\n" + "="*70)
@@ -431,16 +445,18 @@ class Benchmarker:
         
         # Save results with timestamp for historical tracking
         os.makedirs("results", exist_ok=True)
+        os.makedirs(self.dataset_results_folder, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
-        # Save current results (overwrite)
-        report_df.to_csv("results/benchmark_results.csv", index=False)
+        # Create dataset identifier for filename (remove spaces and parentheses)
+        dataset_id = self.dataset.replace(' ', '_').replace('(', '').replace(')', '')
         
-        # Save timestamped copy for history
-        report_df.to_csv(f"results/benchmark_results_{timestamp}.csv", index=False)
+        # Save timestamped copy to dataset-specific folder
+        timestamped_filename = f"benchmark_results_{timestamp}_{dataset_id}_{self.job_id}.csv"
+        timestamped_path = os.path.join(self.dataset_results_folder, timestamped_filename)
+        report_df.to_csv(timestamped_path, index=False)
         print(f"\n✓ Results saved:")
-        print(f"  - Current: results/benchmark_results.csv")
-        print(f"  - History: results/benchmark_results_{timestamp}.csv")
+        print(f"  - Timestamped: {timestamped_path}")
         
         # Append to history file with metadata
         history_file = "results/benchmark_history.csv"
