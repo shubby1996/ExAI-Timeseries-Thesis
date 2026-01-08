@@ -1,0 +1,9 @@
+{
+    "num_stacks": 4,
+    "num_blocks": 1,
+    "num_layers": 3,
+    "layer_widths": 256,
+    "lr": 6.365608596523382e-05,
+    "dropout": 0.11074851436389332,
+    "weight_decay": 2.876150410821292e-06
+}
