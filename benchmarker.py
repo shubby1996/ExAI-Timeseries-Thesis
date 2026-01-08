@@ -12,7 +12,7 @@ from properscoring import crps_ensemble
 
 # Darts imports
 from darts import TimeSeries
-from darts.models import NHiTSModel
+from darts.models import NHiTSModel, TFTModel
 from darts.utils.likelihood_models import QuantileRegression
 
 # NeuralForecast imports
@@ -200,6 +200,134 @@ class DartsAdapter(ModelAdapter):
         }
         return metrics, pdf
 
+class TFTAdapter(ModelAdapter):
+    """Adapter for Temporal Fusion Transformer (TFT) from Darts."""
+    def train(self, csv_path: str, train_end_str: str, val_end_str: str):
+        print(f"\n[{self.name}] Training...")
+        # Auto-detect water vs heat data
+        cfg = mp.water_feature_config() if "water" in csv_path.lower() or "centrum" in csv_path.lower() else mp.default_feature_config()
+        self.state, t_sc, v_sc, _ = mp.prepare_model_data(csv_path, to_naive(train_end_str), to_naive(val_end_str), cfg)
+        
+        # Default TFT core params
+        cp = {
+            "input_chunk_length": 168,
+            "output_chunk_length": 24,
+            "batch_size": 32,
+            "n_epochs": self.config.get("n_epochs", 100),
+            "hidden_size": 64,
+            "lstm_layers": 1,
+            "num_attention_heads": 4,
+            "dropout": 0.1,
+            "random_state": 42,
+            "force_reset": True,
+            "pl_trainer_kwargs": {
+                "logger": True,
+                "enable_checkpointing": False,
+                "default_root_dir": "lightning_logs"
+            }
+        }
+
+        # Switch between quantile (probabilistic) and point (MSE) objectives
+        if self.config.get("quantile", True):
+            cp["likelihood"] = QuantileRegression(quantiles=[0.1, 0.5, 0.9])
+        
+        # Override with HPO results if available
+        if "best_params" in self.config and self.config["best_params"] is not None:
+            best = self.config["best_params"]
+            print(f"  Using optimized hyperparameters from HPO")
+            cp.update({
+                "hidden_size": best.get("hidden_size", 64),
+                "lstm_layers": best.get("lstm_layers", 1),
+                "num_attention_heads": best.get("num_attention_heads", 4),
+                "dropout": best.get("dropout", 0.1),
+                "optimizer_kwargs": {"lr": best.get("lr", 1e-3)}
+            })
+        else:
+            print(f"  Using default hyperparameters (no HPO results found)")
+        
+        # TFT uses separate past and future covariates
+        tp, vp = t_sc["past_covariates"], v_sc["past_covariates"]
+        tf, vf = t_sc["future_covariates"], v_sc["future_covariates"]
+        
+        self.model = TFTModel(**cp)
+        self.model.fit(
+            t_sc["target"], 
+            past_covariates=tp, 
+            future_covariates=tf,
+            val_series=v_sc["target"], 
+            val_past_covariates=vp,
+            val_future_covariates=vf
+        )
+        
+        os.makedirs("models", exist_ok=True)
+        self.model.save(os.path.join("models", f"{self.name}.pt"))
+        with open(os.path.join("models", f"{self.name}_preprocessing_state.pkl"), "wb") as f: pickle.dump(self.state, f)
+
+    def evaluate(self, csv_path: str, test_start_str: str, n_predictions: int = 50) -> Tuple[Dict[str, float], pd.DataFrame]:
+        print(f"[{self.name}] Evaluating (Walk-forward)...")
+        if not self.state:
+            with open(os.path.join("models", f"{self.name}_preprocessing_state.pkl"), "rb") as f: self.state = pickle.load(f)
+        df_full = mp.load_and_validate_features(csv_path)
+        df_full.index = df_full.index.tz_localize(None)
+        sc_dict = mp.apply_state_to_full_df(df_full, self.state)
+        st, sp, sf = sc_dict["target"], sc_dict["past_covariates"], sc_dict["future_covariates"]
+        ts_naive = to_naive(test_start_str)
+        
+        all_rows = []
+        all_samples = []
+        all_actuals = []
+        is_quantile = self.config.get("quantile", True)
+        for i in range(n_predictions):
+            ps = ts_naive + pd.Timedelta(hours=i * 24)
+            ht = st[:ps - pd.Timedelta(hours=1)]
+            if len(ht) < 168: continue
+            as_sl = df_full[self.state.feature_config.target_col][ps : ps + pd.Timedelta(hours=23)]
+            if len(as_sl) < 24: break
+            
+            # TFT needs both past and future covariates separately
+            hp = sp[:ps - pd.Timedelta(hours=1)]
+            hf = sf[:ps + pd.Timedelta(hours=23)] if sf else None
+            
+            preds = self.model.predict(
+                n=24,
+                series=ht,
+                past_covariates=hp,
+                future_covariates=hf,
+                num_samples=100 if is_quantile else 1
+            )
+
+            po = self.state.target_scaler.inverse_transform(preds)
+
+            if is_quantile:
+                p10 = po.quantile(0.1).values().flatten()
+                p50 = po.quantile(0.5).values().flatten()
+                p90 = po.quantile(0.9).values().flatten()
+                samples = po.all_values(copy=False)[:, :, 0]
+                all_samples.extend([samples[j, :] for j in range(samples.shape[0])])
+            else:
+                p50 = po.values().flatten()
+                p10 = p50
+                p90 = p50
+                all_samples.extend([np.array([v]) for v in p50])
+            
+            actuals = as_sl.values
+            all_actuals.extend(actuals)
+            times = as_sl.index
+            
+            for t, a, l, m, h in zip(times, actuals, p10, p50, p90):
+                all_rows.append({"timestamp": t, "actual": a, "p10": l, "p50": m, "p90": h})
+        
+        pdf = pd.DataFrame(all_rows)
+        metrics = {
+            "MAE": mean_absolute_error(pdf["actual"], pdf["p50"]),
+            "RMSE": np.sqrt(mean_squared_error(pdf["actual"], pdf["p50"])),
+            "MAPE": calculate_mape(pdf["actual"].values, pdf["p50"].values),
+            "PICP": calculate_picp(pdf["actual"].values, pdf["p10"].values, pdf["p90"].values) if is_quantile else np.nan,
+            "MIW": calculate_miw(pdf["p10"].values, pdf["p90"].values) if is_quantile else np.nan,
+            "CRPS": calculate_crps(np.array(all_actuals), all_samples) if is_quantile else np.nan
+        }
+        return metrics, pdf
+
 class NeuralForecastAdapter(ModelAdapter):
     def _prepare_df(self, csv_path):
         df_full = mp.load_and_validate_features(csv_path)
@@ -358,15 +486,19 @@ class Benchmarker:
         # Load optimized params if they exist
         nhits_best = self._load_json("results/best_params_NHITS.json")
         timesnet_best = self._load_json("results/best_params_TIMESNET.json")
+        tft_best = self._load_json("results/best_params_TFT.json")
         
         self.configs = {
             "NHITS_Q": {"type": "NHITS", "quantile": True, "n_epochs": 100, "best_params": nhits_best},
             "NHITS_MSE": {"type": "NHITS", "quantile": False, "n_epochs": 100, "best_params": None},
             "TIMESNET_Q": {"type": "TIMESNET", "quantile": True, "n_epochs": 150, "best_params": timesnet_best},
             "TIMESNET_MSE": {"type": "TIMESNET", "quantile": False, "n_epochs": 150, "best_params": None},
+            "TFT_Q": {"type": "TFT", "quantile": True, "n_epochs": 100, "best_params": tft_best},
+            "TFT_MSE": {"type": "TFT", "quantile": False, "n_epochs": 100, "best_params": None},
             # Backward-compatible aliases
             "NHITS": {"type": "NHITS", "quantile": True, "n_epochs": 100, "best_params": nhits_best},
             "TIMESNET": {"type": "TIMESNET", "quantile": True, "n_epochs": 150, "best_params": timesnet_best},
+            "TFT": {"type": "TFT", "quantile": True, "n_epochs": 100, "best_params": tft_best},
         }
 
     def _load_json(self, path: str):
@@ -427,7 +559,13 @@ class Benchmarker:
         for mk in self.models_to_run:
             if mk not in self.configs: continue
             cfg = self.configs[mk]
-            adapter = NeuralForecastAdapter(mk, cfg) if cfg["type"].upper() == "TIMESNET" else DartsAdapter(mk, cfg)
+            # Select appropriate adapter based on model type
+            if cfg["type"].upper() == "TIMESNET":
+                adapter = NeuralForecastAdapter(mk, cfg)
+            elif cfg["type"].upper() == "TFT":
+                adapter = TFTAdapter(mk, cfg)
+            else:  # NHITS and other Darts models
+                adapter = DartsAdapter(mk, cfg)
             adapter.train(self.csv_path, "2018-12-31 23:00:00+00:00", "2019-12-31 23:00:00+00:00")
             metrics, pdf = adapter.evaluate(self.csv_path, "2020-01-01 00:00:00+00:00")
             metrics["Model"] = mk; self.results.append(metrics)

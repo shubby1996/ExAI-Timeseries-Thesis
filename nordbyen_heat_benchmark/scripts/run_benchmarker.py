@@ -29,8 +29,8 @@ from benchmarker import Benchmarker
 def main():
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description='Run benchmarking for specified models')
-    parser.add_argument('--models', nargs='+', default=["NHITS_Q", "TIMESNET_Q"],
-                        help='Models to benchmark (e.g., --models NHITS TIMESNET)')
+    parser.add_argument('--models', nargs='+', default=["NHITS_Q", "TIMESNET_Q", "TFT_Q"],
+                        help='Models to benchmark (e.g., --models NHITS_Q TIMESNET_Q TFT_Q)')
     parser.add_argument('--data', default="processing/nordbyen_processing/nordbyen_features_engineered.csv",
                         help='Path to the data CSV file')
     args = parser.parse_args()
