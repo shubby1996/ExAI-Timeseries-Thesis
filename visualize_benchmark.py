@@ -12,7 +12,8 @@ def find_latest_prediction_file(results_dir, model_name):
     """Find the latest prediction file for a given model.
     
     Looks for files matching: {model_name}_predictions_*.csv
-    Returns the most recent one based on filename (job ID or 'local').
+    Prefers files with job IDs (numeric) over 'local' files.
+    Returns the most recent one based on job ID (numeric).
     """
     pattern = os.path.join(results_dir, f"{model_name}_predictions_*.csv")
     matching_files = glob.glob(pattern)
@@ -24,7 +25,29 @@ def find_latest_prediction_file(results_dir, model_name):
             return old_format
         return None
     
-    # Return the most recent file (sorted by filename)
+    # Separate files with job IDs from 'local' files
+    job_id_files = []
+    local_files = []
+    
+    for f in matching_files:
+        filename = os.path.basename(f)
+        # Extract suffix after last underscore
+        suffix = filename.split('_')[-1].replace('.csv', '')
+        if suffix.isdigit():
+            job_id_files.append((int(suffix), f))
+        elif suffix == 'local':
+            local_files.append(f)
+    
+    # Prefer job ID files, return the one with highest job ID (most recent)
+    if job_id_files:
+        job_id_files.sort(key=lambda x: x[0], reverse=True)
+        return job_id_files[0][1]
+    
+    # Fallback to local file if no job ID files found
+    if local_files:
+        return local_files[0]
+    
+    # If nothing found, return most recent alphabetically
     return sorted(matching_files)[-1]
 
 
@@ -45,13 +68,27 @@ def compute_metrics(df):
     # Calculate CRPS by approximating samples from quantiles
     crps_values = []
     for _, row in df.iterrows():
-        # Approximate samples from quantiles assuming normal distribution
+        # Skip rows with NaN quantiles
+        if pd.isna(row['p10']) or pd.isna(row['p50']) or pd.isna(row['p90']):
+            continue
+        
         p10, p50, p90 = row['p10'], row['p50'], row['p90']
-        # 80% interval ≈ 1.28*2*std
+        
+        # Validate quantile ordering
+        if p10 >= p50 or p50 >= p90:
+            continue
+        
+        # Approximate std from 80% interval
         std = (p90 - p10) / 2.56
+        
+        # Skip if std is invalid (should not happen with valid quantiles)
+        if std <= 0:
+            continue
+        
         samples = np.random.normal(p50, std, 100)
         crps_values.append(crps_ensemble(row['actual'], samples))
-    crps = np.mean(crps_values)
+    
+    crps = np.mean(crps_values) if crps_values else np.nan
     
     return {'MAE': mae, 'RMSE': rmse, 'MAPE': mape, 'PICP': picp, 'MIW': miw, 'CRPS': crps}
 
@@ -159,7 +196,7 @@ def main():
     print(f"Visualizing results from: {results_dir}")
     
     sns.set_theme(style="whitegrid")
-    models = ["NHITS_Q", "TIMESNET_Q", "NHITS_MSE", "TIMESNET_MSE"]
+    models = ["NHITS_Q", "TIMESNET_Q", "TFT_Q", "NHITS_MSE", "TIMESNET_MSE", "TFT_MSE"]
     results = {}
     
     for model in models:

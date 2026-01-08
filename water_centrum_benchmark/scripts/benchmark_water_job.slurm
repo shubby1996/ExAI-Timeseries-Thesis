@@ -6,6 +6,7 @@
 #SBATCH --partition=a100
 #SBATCH --gres=gpu:a100:1
 #SBATCH --cpus-per-task=8
+#SBATCH --exclude=tg094
 
 # SBATCH --partition=v100
 # SBATCH --gres=gpu:v100:1

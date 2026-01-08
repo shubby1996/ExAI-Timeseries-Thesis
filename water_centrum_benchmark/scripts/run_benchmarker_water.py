@@ -27,8 +27,8 @@ from benchmarker import Benchmarker
 
 def main():
     parser = argparse.ArgumentParser(description='Run benchmarking for water consumption data')
-    parser.add_argument('--models', nargs='+', default=["NHITS_Q", "NHITS_MSE", "TIMESNET_Q", "TIMESNET_MSE"],
-                        help='Models to benchmark (e.g., --models NHITS_Q TIMESNET_Q)')
+    parser.add_argument('--models', nargs='+', default=["NHITS_Q", "NHITS_MSE", "TIMESNET_Q", "TIMESNET_MSE", "TFT_Q", "TFT_MSE"],
+                        help='Models to benchmark (e.g., --models NHITS_Q TIMESNET_Q TFT_Q)')
     args = parser.parse_args()
     
     # Water consumption data configuration - path relative to project root (where SLURM runs from)
