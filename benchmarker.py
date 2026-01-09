@@ -83,8 +83,9 @@ class ModelAdapter(ABC):
 class DartsAdapter(ModelAdapter):
     def train(self, csv_path: str, train_end_str: str, val_end_str: str):
         print(f"\n[{self.name}] Training...")
-        # Auto-detect water vs heat data
-        cfg = mp.water_feature_config() if "water" in csv_path.lower() or "centrum" in csv_path.lower() else mp.default_feature_config()
+        # Auto-detect water vs heat data (include Tommerby water set)
+        lower_path = csv_path.lower()
+        cfg = mp.water_feature_config() if ("water" in lower_path or "centrum" in lower_path or "tommerby" in lower_path) else mp.default_feature_config()
         self.state, t_sc, v_sc, _ = mp.prepare_model_data(csv_path, to_naive(train_end_str), to_naive(val_end_str), cfg)
         
         # Default core params
@@ -204,8 +205,9 @@ class TFTAdapter(ModelAdapter):
     """Adapter for Temporal Fusion Transformer (TFT) from Darts."""
     def train(self, csv_path: str, train_end_str: str, val_end_str: str):
         print(f"\n[{self.name}] Training...")
-        # Auto-detect water vs heat data
-        cfg = mp.water_feature_config() if "water" in csv_path.lower() or "centrum" in csv_path.lower() else mp.default_feature_config()
+        # Auto-detect water vs heat data (include Tommerby water set)
+        lower_path = csv_path.lower()
+        cfg = mp.water_feature_config() if ("water" in lower_path or "centrum" in lower_path or "tommerby" in lower_path) else mp.default_feature_config()
         self.state, t_sc, v_sc, _ = mp.prepare_model_data(csv_path, to_naive(train_end_str), to_naive(val_end_str), cfg)
         
         # Default TFT core params
@@ -331,10 +333,11 @@ class TFTAdapter(ModelAdapter):
 class NeuralForecastAdapter(ModelAdapter):
     def _prepare_df(self, csv_path):
         df_full = mp.load_and_validate_features(csv_path)
-        nf_df = df_full.reset_index().rename(columns={"timestamp": "ds", "heat_consumption": "y"} if "heat" in csv_path.lower() or "nordbyen" in csv_path.lower() else {"timestamp": "ds", "water_consumption": "y"})
-        nf_df["unique_id"] = "nordbyen" if "nordbyen" in csv_path.lower() else "centrum"
-        # Auto-detect water vs heat data for feature config
-        cfg = mp.water_feature_config() if "water" in csv_path.lower() or "centrum" in csv_path.lower() else mp.default_feature_config()
+        lower_path = csv_path.lower()
+        nf_df = df_full.reset_index().rename(columns={"timestamp": "ds", "heat_consumption": "y"} if ("heat" in lower_path or "nordbyen" in lower_path) else {"timestamp": "ds", "water_consumption": "y"})
+        nf_df["unique_id"] = "nordbyen" if "nordbyen" in lower_path else ("tommerby" if "tommerby" in lower_path else "centrum")
+        # Auto-detect water vs heat data for feature config (include Tommerby water set)
+        cfg = mp.water_feature_config() if ("water" in lower_path or "centrum" in lower_path or "tommerby" in lower_path) else mp.default_feature_config()
         
         # TimesNet doesn't support hist_exog_list, so treat all exogenous as future (assumes weather is forecasted)
         futr_ex = [c for c in (cfg.past_covariates_cols + cfg.future_covariates_cols) 
@@ -463,19 +466,25 @@ class Benchmarker:
         self.models_to_run = [m.upper() for m in models_to_run]
         # Infer dataset from path if not provided
         if dataset is None:
-            if 'nordbyen' in csv_path.lower():
+            lower_path = csv_path.lower()
+            if 'nordbyen' in lower_path:
                 self.dataset = 'Heat (Nordbyen)'
-            elif 'centrum' in csv_path.lower():
+            elif 'centrum' in lower_path:
                 self.dataset = 'Water (Centrum)'
+            elif 'tommerby' in lower_path:
+                self.dataset = 'Water (Tommerby)'
             else:
                 self.dataset = 'Unknown'
         else:
             self.dataset = dataset
         
         # Determine dataset-specific results folder
-        if 'nordbyen' in csv_path.lower() or 'heat' in self.dataset.lower():
+        lower_path = csv_path.lower()
+        if 'nordbyen' in lower_path or 'heat' in self.dataset.lower():
             self.dataset_results_folder = 'nordbyen_heat_benchmark/results'
-        elif 'centrum' in csv_path.lower() or 'water' in self.dataset.lower():
+        elif 'tommerby' in lower_path or 'tommerby' in self.dataset.lower():
+            self.dataset_results_folder = 'water_tommerby_benchmark/results'
+        elif 'centrum' in lower_path or ('water' in self.dataset.lower() and 'centrum' in self.dataset.lower()):
             self.dataset_results_folder = 'water_centrum_benchmark/results'
         else:
             self.dataset_results_folder = 'results/unknown_dataset'

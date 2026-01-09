@@ -6,6 +6,8 @@ import os
 DATA_DIR = "."
 INPUT_FILE = "tommerby_water_weather_aligned.csv"
 OUTPUT_FILE = "tommerby_features_engineered.csv"
+OUTPUT_FILE_FROM = "tommerby_features_engineered_from_2018-04-01.csv"
+START_DATE = "2018-04-01"
 
 def engineer_features_tommerby():
     print("Loading Data...")
@@ -80,15 +82,40 @@ def engineer_features_tommerby():
         for _, row in school_hol.iterrows():
             date_range = pd.date_range(start=row['start_date'], end=row['end_date'])
             for d in date_range:
-                school_holiday_map[d.date()] = row['description']
+                school_holiday_map[d.date()] = row.get('description', None)
         
         df['school_holiday_name'] = df['date'].map(school_holiday_map)
         df['is_school_holiday'] = df['school_holiday_name'].notna().astype(int)
         df['school_holiday_name'] = df['school_holiday_name'].fillna("None")
     else:
-        print("Warning: school_holidays.csv not found. Setting school holidays to 0.")
-        df['is_school_holiday'] = 0
-        df['school_holiday_name'] = "None"
+        # Fallback: try to extract school-holiday info from Centrum engineered features (if available)
+        centrum_file = os.path.join("..", "centrum_processing", "centrum_features_engineered_from_2018-04-01.csv")
+        if os.path.exists(centrum_file):
+            print(f"school_holidays.csv not found — extracting school-holiday dates from {centrum_file}")
+            cf = pd.read_csv(centrum_file, parse_dates=['timestamp'])
+            if 'is_school_holiday' in cf.columns and 'school_holiday_name' in cf.columns:
+                cf['date'] = cf['timestamp'].dt.date
+                # For each date where any hour is marked as school holiday, take the most common name
+                grp = cf[cf['is_school_holiday'] == 1].groupby('date')['school_holiday_name']
+                school_holiday_map = {}
+                for d, s in grp:
+                    try:
+                        name = s.mode().iloc[0]
+                    except Exception:
+                        name = s.iloc[0]
+                    school_holiday_map[d] = name
+
+                df['school_holiday_name'] = df['date'].map(school_holiday_map)
+                df['is_school_holiday'] = df['school_holiday_name'].notna().astype(int)
+                df['school_holiday_name'] = df['school_holiday_name'].fillna("None")
+            else:
+                print("Centrum engineered file missing school holiday columns — setting school holidays to 0.")
+                df['is_school_holiday'] = 0
+                df['school_holiday_name'] = "None"
+        else:
+            print("Warning: school_holidays.csv and fallback Centrum file not found. Setting school holidays to 0.")
+            df['is_school_holiday'] = 0
+            df['school_holiday_name'] = "None"
         
     # Drop temporary date column
     df.drop(columns=['date'], inplace=True)
@@ -101,11 +128,23 @@ def engineer_features_tommerby():
     dropped = original_len - len(df)
     print(f"Dropped {dropped} rows due to NaN values (from lag features).")
     
+    # Save full engineered file
     print(f"Final Shape: {df.shape}")
     print(df.head())
 
     print(f"\nSaving to {OUTPUT_FILE}...")
     df.to_csv(OUTPUT_FILE)
+
+    # Create and save a filtered dataset starting from START_DATE for benchmarking consistency
+    try:
+        start_ts = pd.to_datetime(START_DATE, utc=True)
+    except Exception:
+        start_ts = pd.to_datetime(START_DATE)
+
+    df_from = df[df.index >= start_ts]
+    print(f"Saving filtered dataset from {START_DATE} to {OUTPUT_FILE_FROM} (rows: {len(df_from)})")
+    df_from.to_csv(OUTPUT_FILE_FROM)
+
     print("Done.")
 
 if __name__ == "__main__":
