@@ -28,6 +28,63 @@ def calculate_mape(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     if not np.any(mask): return 0.0
     return np.mean(np.abs((y_true[mask] - y_pred[mask]) / y_true[mask])) * 100
 
+def calculate_mape_eps(y_true: np.ndarray, y_pred: np.ndarray, eps: float = 1e-3) -> float:
+    denom = np.maximum(np.abs(y_true), eps)
+    return float(np.mean(np.abs(y_true - y_pred) / denom) * 100)
+
+def calculate_smape(y_true: np.ndarray, y_pred: np.ndarray, eps: float = 1e-8) -> float:
+    denom = np.maximum(np.abs(y_true) + np.abs(y_pred), eps)
+    return float(np.mean(2.0 * np.abs(y_pred - y_true) / denom) * 100)
+
+def calculate_wape(y_true: np.ndarray, y_pred: np.ndarray, eps: float = 1e-8) -> float:
+    denom = np.maximum(np.sum(np.abs(y_true)), eps)
+    return float(np.sum(np.abs(y_true - y_pred)) / denom * 100)
+
+def mase_denominator(series: np.ndarray, m: int = 24) -> float:
+    series = np.asarray(series)
+    if len(series) <= m: return np.nan
+    diffs = np.abs(series[m:] - series[:-m])
+    if len(diffs) == 0: return np.nan
+    return float(np.mean(diffs))
+
+def calculate_mase(y_true: np.ndarray, y_pred: np.ndarray, scale: float) -> float:
+    if scale is None or np.isnan(scale) or scale == 0: return np.nan
+    return float(np.mean(np.abs(y_true - y_pred)) / scale)
+
+def calculate_winkler_score(y_true: np.ndarray, y_low: np.ndarray, y_high: np.ndarray, alpha: float = 0.2) -> float:
+    """Winkler score (interval score) - penalizes width and misses.
+    IS = (u - l) + (2/alpha) * max(0, l - y) + (2/alpha) * max(0, y - u)
+    Lower is better.
+    """
+    if len(y_true) == 0: return np.nan
+    width = y_high - y_low
+    miss_below = np.maximum(0, y_low - y_true)
+    miss_above = np.maximum(0, y_true - y_high)
+    return float(np.mean(width + (2.0 / alpha) * (miss_below + miss_above)))
+
+def calculate_calibration_curve(y_true: np.ndarray, y_low: np.ndarray, y_high: np.ndarray) -> Dict[str, np.ndarray]:
+    """Generate calibration curve: empirical vs nominal coverage at different quantile levels.
+    Returns dict with 'nominal' and 'empirical' arrays for plotting."""
+    if len(y_true) == 0: return {'nominal': np.array([]), 'empirical': np.array([])}
+    
+    # Define quantile levels to test
+    quantile_levels = np.array([0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45])
+    empirical_coverage = []
+    
+    for q in quantile_levels:
+        # For a symmetric interval with coverage (1 - 2*q)
+        # We approximate quantiles from our p10, p50, p90 interval
+        # Simple approach: scale the interval
+        nominal_cov = 1 - 2 * q
+        width = y_high - y_low
+        margin = width * q / 0.1  # 0.1 is the quantile level for p10/p90
+        emp_low = y_low - margin
+        emp_high = y_high + margin
+        emp_cov = np.mean((y_true >= emp_low) & (y_true <= emp_high))
+        empirical_coverage.append(emp_cov)
+    
+    return {'nominal': 1 - 2 * quantile_levels, 'empirical': np.array(empirical_coverage)}
+
 def calculate_picp(y_true: np.ndarray, y_low: np.ndarray, y_high: np.ndarray) -> float:
     if len(y_true) == 0: return 0.0
     within_interval = (y_true >= y_low) & (y_true <= y_high)
@@ -148,6 +205,8 @@ class DartsAdapter(ModelAdapter):
         sc_dict = mp.apply_state_to_full_df(df_full, self.state)
         st, sp, sf = sc_dict["target"], sc_dict["past_covariates"], sc_dict["future_covariates"]
         ts_naive = to_naive(test_start_str)
+        mase_scale = mase_denominator(df_full.loc[df_full.index < ts_naive, self.state.feature_config.target_col].values, m=24)
+        mase_scale = mase_denominator(df_full.loc[df_full.index < ts_naive, self.state.feature_config.target_col].values, m=24)
         
         all_rows = []
         all_samples = []  # Store samples for CRPS
@@ -195,8 +254,13 @@ class DartsAdapter(ModelAdapter):
             "MAE": mean_absolute_error(pdf["actual"], pdf["p50"]),
             "RMSE": np.sqrt(mean_squared_error(pdf["actual"], pdf["p50"])),
             "MAPE": calculate_mape(pdf["actual"].values, pdf["p50"].values),
+            "MAPE_EPS": calculate_mape_eps(pdf["actual"].values, pdf["p50"].values),
+            "sMAPE": calculate_smape(pdf["actual"].values, pdf["p50"].values),
+            "WAPE": calculate_wape(pdf["actual"].values, pdf["p50"].values),
+            "MASE": calculate_mase(pdf["actual"].values, pdf["p50"].values, mase_scale),
             "PICP": calculate_picp(pdf["actual"].values, pdf["p10"].values, pdf["p90"].values) if is_quantile else np.nan,
             "MIW": calculate_miw(pdf["p10"].values, pdf["p90"].values) if is_quantile else np.nan,
+            "Winkler": calculate_winkler_score(pdf["actual"].values, pdf["p10"].values, pdf["p90"].values) if is_quantile else np.nan,
             "CRPS": calculate_crps(np.array(all_actuals), all_samples) if is_quantile else np.nan
         }
         return metrics, pdf
@@ -324,8 +388,13 @@ class TFTAdapter(ModelAdapter):
             "MAE": mean_absolute_error(pdf["actual"], pdf["p50"]),
             "RMSE": np.sqrt(mean_squared_error(pdf["actual"], pdf["p50"])),
             "MAPE": calculate_mape(pdf["actual"].values, pdf["p50"].values),
+            "MAPE_EPS": calculate_mape_eps(pdf["actual"].values, pdf["p50"].values),
+            "sMAPE": calculate_smape(pdf["actual"].values, pdf["p50"].values),
+            "WAPE": calculate_wape(pdf["actual"].values, pdf["p50"].values),
+            "MASE": calculate_mase(pdf["actual"].values, pdf["p50"].values, mase_scale),
             "PICP": calculate_picp(pdf["actual"].values, pdf["p10"].values, pdf["p90"].values) if is_quantile else np.nan,
             "MIW": calculate_miw(pdf["p10"].values, pdf["p90"].values) if is_quantile else np.nan,
+            "Winkler": calculate_winkler_score(pdf["actual"].values, pdf["p10"].values, pdf["p90"].values) if is_quantile else np.nan,
             "CRPS": calculate_crps(np.array(all_actuals), all_samples) if is_quantile else np.nan
         }
         return metrics, pdf
@@ -402,6 +471,7 @@ class NeuralForecastAdapter(ModelAdapter):
         nf_df, futr_ex = self._prepare_df(csv_path)
         nf_df['ds'] = nf_df['ds'].dt.tz_localize(None)
         ts_naive = to_naive(test_start_str)
+        mase_scale = mase_denominator(nf_df.loc[nf_df['ds'] < ts_naive, 'y'].values, m=24)
         
         all_rows = []
         all_samples = []  # Approximate samples from quantiles for CRPS
@@ -454,8 +524,13 @@ class NeuralForecastAdapter(ModelAdapter):
             "MAE": mean_absolute_error(pdf["actual"], pdf["p50"]),
             "RMSE": np.sqrt(mean_squared_error(pdf["actual"], pdf["p50"])),
             "MAPE": calculate_mape(pdf["actual"].values, pdf["p50"].values),
+            "MAPE_EPS": calculate_mape_eps(pdf["actual"].values, pdf["p50"].values),
+            "sMAPE": calculate_smape(pdf["actual"].values, pdf["p50"].values),
+            "WAPE": calculate_wape(pdf["actual"].values, pdf["p50"].values),
+            "MASE": calculate_mase(pdf["actual"].values, pdf["p50"].values, mase_scale),
             "PICP": calculate_picp(pdf["actual"].values, pdf["p10"].values, pdf["p90"].values) if is_quantile else np.nan,
             "MIW": calculate_miw(pdf["p10"].values, pdf["p90"].values) if is_quantile else np.nan,
+            "Winkler": calculate_winkler_score(pdf["actual"].values, pdf["p10"].values, pdf["p90"].values) if is_quantile else np.nan,
             "CRPS": calculate_crps(np.array(all_actuals), all_samples) if is_quantile else np.nan
         }
         return metrics, pdf
