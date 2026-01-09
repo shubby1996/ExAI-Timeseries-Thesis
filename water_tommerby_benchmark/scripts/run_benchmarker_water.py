@@ -32,7 +32,7 @@ def main():
     args = parser.parse_args()
     
     # Water consumption data configuration - path relative to project root (where SLURM runs from)
-    DATA_PATH = "processing/tommerby_processing/tommerby_features_engineered.csv"
+    DATA_PATH = "processing/tommerby_processing/tommerby_features_engineered_from_2018-04-01.csv"
     MODELS_TO_RUN = args.models
     
     print("="*70)
