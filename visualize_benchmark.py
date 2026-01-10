@@ -1,3 +1,4 @@
+import math
 import pandas as pd
 import matplotlib.pyplot as plt
 import os
@@ -6,6 +7,7 @@ import glob
 import seaborn as sns
 import numpy as np
 from properscoring import crps_ensemble
+from typing import Dict
 
 
 def find_latest_prediction_file(results_dir, model_name):
@@ -58,10 +60,68 @@ def compute_errors(df):
     df['pct_error'] = 100 * df['error'] / df['actual'].replace(0, 1)
     return df
 
+def smape(y_true: np.ndarray, y_pred: np.ndarray, eps: float = 1e-8) -> float:
+    denom = np.maximum(np.abs(y_true) + np.abs(y_pred), eps)
+    return float(np.mean(2.0 * np.abs(y_pred - y_true) / denom) * 100)
+
+def mape_eps(y_true: np.ndarray, y_pred: np.ndarray, eps: float = 1e-3) -> float:
+    denom = np.maximum(np.abs(y_true), eps)
+    return float(np.mean(np.abs(y_true - y_pred) / denom) * 100)
+
+def wape(y_true: np.ndarray, y_pred: np.ndarray, eps: float = 1e-8) -> float:
+    denom = np.maximum(np.sum(np.abs(y_true)), eps)
+    return float(np.sum(np.abs(y_true - y_pred)) / denom * 100)
+
+def mase_denominator(series: np.ndarray, m: int = 24) -> float:
+    if len(series) <= m:
+        return np.nan
+    diffs = np.abs(series[m:] - series[:-m])
+    if len(diffs) == 0:
+        return np.nan
+    return float(np.mean(diffs))
+
+def mase(y_true: np.ndarray, y_pred: np.ndarray, scale: float) -> float:
+    if scale is None or np.isnan(scale) or scale == 0:
+        return np.nan
+    return float(np.mean(np.abs(y_true - y_pred)) / scale)
+
+def winkler_score(y_true: np.ndarray, y_low: np.ndarray, y_high: np.ndarray, alpha: float = 0.2) -> float:
+    """Winkler score (interval score) - penalizes width and misses. Lower is better."""
+    if len(y_true) == 0: 
+        return np.nan
+    width = y_high - y_low
+    miss_below = np.maximum(0, y_low - y_true)
+    miss_above = np.maximum(0, y_true - y_high)
+    return float(np.mean(width + (2.0 / alpha) * (miss_below + miss_above)))
+
+def calibration_curve(y_true: np.ndarray, y_low: np.ndarray, y_high: np.ndarray) -> Dict[str, np.ndarray]:
+    """Calibration curve: empirical vs nominal coverage at different quantile levels."""
+    if len(y_true) == 0:
+        return {'nominal': np.array([]), 'empirical': np.array([])}
+    
+    quantile_levels = np.array([0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45])
+    empirical_coverage = []
+    
+    for q in quantile_levels:
+        nominal_cov = 1 - 2 * q
+        width = y_high - y_low
+        margin = width * q / 0.1  # Scale margin based on quantile level
+        emp_low = y_low - margin
+        emp_high = y_high + margin
+        emp_cov = np.mean((y_true >= emp_low) & (y_true <= emp_high))
+        empirical_coverage.append(emp_cov)
+    
+    return {'nominal': 1 - 2 * quantile_levels, 'empirical': np.array(empirical_coverage)}
+
 def compute_metrics(df):
     mae = df['abs_error'].mean()
     rmse = (df['error'] ** 2).mean() ** 0.5
     mape = df['pct_error'].abs().mean()
+    mape_eps_val = mape_eps(df['actual'].values, df['p50'].values)
+    smape_val = smape(df['actual'].values, df['p50'].values)
+    wape_val = wape(df['actual'].values, df['p50'].values)
+    mase_scale = mase_denominator(df['actual'].values, m=24)
+    mase_val = mase(df['actual'].values, df['p50'].values, mase_scale)
     picp = ((df['actual'] >= df['p10']) & (df['actual'] <= df['p90'])).mean() * 100
     miw = (df['p90'] - df['p10']).mean()
     
@@ -90,7 +150,19 @@ def compute_metrics(df):
     
     crps = np.mean(crps_values) if crps_values else np.nan
     
-    return {'MAE': mae, 'RMSE': rmse, 'MAPE': mape, 'PICP': picp, 'MIW': miw, 'CRPS': crps}
+    return {
+        'MAE': mae,
+        'RMSE': rmse,
+        'MAPE': mape,
+        'MAPE_EPS': mape_eps_val,
+        'sMAPE': smape_val,
+        'WAPE': wape_val,
+        'MASE': mase_val,
+        'PICP': picp,
+        'MIW': miw,
+        'Winkler': winkler_score(df['actual'].values, df['p10'].values, df['p90'].values) if (df['p10'].notna().any() and df['p90'].notna().any()) else np.nan,
+        'CRPS': crps
+    }
 
 def plot_time_series(df, model_name, save_path):
     plt.figure(figsize=(15, 5))
@@ -183,6 +255,31 @@ def plot_error_over_time(df, model_name, save_path):
     plt.savefig(save_path, dpi=300)
     plt.close()
 
+def plot_calibration(results_dict, results_dir):
+    """Plot calibration curves: empirical vs nominal coverage for all models."""
+    fig, axes = plt.subplots(1, len(results_dict), figsize=(6 * len(results_dict), 5))
+    if len(results_dict) == 1:
+        axes = [axes]
+    
+    for i, (model, r) in enumerate(results_dict.items()):
+        df = r['df']
+        cal = calibration_curve(df['actual'].values, df['p10'].values, df['p90'].values)
+        
+        ax = axes[i]
+        ax.plot(cal['nominal'], cal['empirical'], 'o-', linewidth=2, markersize=8, label='Model')
+        ax.plot([0, 1], [0, 1], 'k--', linewidth=1, alpha=0.5, label='Perfect calibration')
+        ax.set_xlabel('Nominal Coverage', fontsize=11)
+        ax.set_ylabel('Empirical Coverage', fontsize=11)
+        ax.set_title(f'{model} Calibration')
+        ax.set_xlim([0, 1])
+        ax.set_ylim([0, 1])
+        ax.grid(True, alpha=0.3)
+        ax.legend()
+    
+    plt.tight_layout()
+    plt.savefig(os.path.join(results_dir, 'calibration_curves.png'), dpi=300)
+    print(f"Calibration plot saved to {os.path.join(results_dir, 'calibration_curves.png')}")
+    plt.close()
 
 def main():
     # Accept results directory as command-line argument
@@ -214,12 +311,12 @@ def main():
         metrics = compute_metrics(df)
         results[model] = {'df': df, 'metrics': metrics}
         
-        # Plots for each model - save to same results directory
-        plot_time_series(df, model, os.path.join(results_dir, f"{model.lower()}_timeseries.png"))
-        plot_error_histogram(df, model, os.path.join(results_dir, f"{model.lower()}_error_hist.png"))
-        plot_scatter(df, model, metrics, os.path.join(results_dir, f"{model.lower()}_scatter.png"))
-        plot_daily_pattern(df, model, os.path.join(results_dir, f"{model.lower()}_daily_pattern.png"))
-        plot_error_over_time(df, model, os.path.join(results_dir, f"{model.lower()}_error_over_time.png"))
+        # # Plots for each model - save to same results directory
+        # plot_time_series(df, model, os.path.join(results_dir, f"{model.lower()}_timeseries.png"))
+        # plot_error_histogram(df, model, os.path.join(results_dir, f"{model.lower()}_error_hist.png"))
+        # plot_scatter(df, model, metrics, os.path.join(results_dir, f"{model.lower()}_scatter.png"))
+        # plot_daily_pattern(df, model, os.path.join(results_dir, f"{model.lower()}_daily_pattern.png"))
+        # plot_error_over_time(df, model, os.path.join(results_dir, f"{model.lower()}_error_over_time.png"))
 
 
     # Comparative summary table and metrics bar plots
@@ -230,25 +327,29 @@ def main():
         summary.to_csv(os.path.join(results_dir, "benchmark_metrics_comparison.csv"))
 
         # Bar plots for metrics comparison
-        metrics_to_plot = ['MAE', 'RMSE', 'MAPE', 'PICP', 'MIW', 'CRPS']
-        fig, axes = plt.subplots(2, 3, figsize=(18, 8))
+        metrics_to_plot = ['MAE', 'RMSE', 'MAPE', 'sMAPE', 'WAPE', 'MASE', 'Winkler', 'PICP', 'MIW', 'CRPS']
+        cols = 3
+        rows = math.ceil(len(metrics_to_plot) / cols)
+        fig, axes = plt.subplots(rows, cols, figsize=(6 * cols, 4 * rows))
         axes = axes.flatten()
         for i, metric in enumerate(metrics_to_plot):
             if metric not in summary.columns:
+                axes[i].set_visible(False)
                 continue
             sns.barplot(x=summary.index, y=summary[metric], ax=axes[i], palette="Set2")
             axes[i].set_title(metric)
             axes[i].set_xlabel("")
             axes[i].set_ylabel(metric)
             axes[i].grid(True, alpha=0.3)
-        # Hide unused subplot if any
-        if len(metrics_to_plot) < len(axes):
-            for j in range(len(metrics_to_plot), len(axes)):
-                axes[j].set_visible(False)
+        for j in range(len(metrics_to_plot), len(axes)):
+            axes[j].set_visible(False)
         plt.tight_layout()
         plt.savefig(os.path.join(results_dir, "benchmark_metrics_barplots.png"), dpi=300)
         print(f"Bar plots for metrics saved to {os.path.join(results_dir, 'benchmark_metrics_barplots.png')}")
         plt.close()
+
+        # Calibration curves
+        plot_calibration(results, results_dir)
 
         # Box plots for prediction distributions
         pred_data = []

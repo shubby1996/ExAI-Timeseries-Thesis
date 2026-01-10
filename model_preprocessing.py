@@ -178,8 +178,9 @@ def load_and_validate_features(
         If time column is missing, timestamps are duplicated, or required columns are missing.
     """
     if cfg is None:
-        # Auto-detect water vs heat from file path
-        if "water" in csv_path.lower() or "centrum" in csv_path.lower():
+        # Auto-detect water vs heat from file path (include Tommerby water set)
+        lower_path = csv_path.lower()
+        if "water" in lower_path or "centrum" in lower_path or "tommerby" in lower_path:
             cfg = water_feature_config()
         else:
             cfg = default_feature_config()
