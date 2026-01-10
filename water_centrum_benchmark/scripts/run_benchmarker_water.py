@@ -29,6 +29,8 @@ def main():
     parser = argparse.ArgumentParser(description='Run benchmarking for water consumption data')
     parser.add_argument('--models', nargs='+', default=["NHITS_Q", "NHITS_MSE", "TIMESNET_Q", "TIMESNET_MSE", "TFT_Q", "TFT_MSE"],
                         help='Models to benchmark (e.g., --models NHITS_Q TIMESNET_Q TFT_Q)')
+    parser.add_argument('--no-cqr', action='store_true',
+                        help='Disable Conformalized Quantile Regression (CQR) calibration')
     args = parser.parse_args()
     
     # Water consumption data configuration - path relative to project root (where SLURM runs from)
@@ -36,17 +38,18 @@ def main():
     MODELS_TO_RUN = args.models
     
     print("="*70)
-    print("WATER CONSUMPTION BENCHMARKER")
+    print("WATER CONSUMPTION BENCHMARKER - CENTRUM")
     print("="*70)
     print(f"Data: {DATA_PATH}")
     print(f"Models: {', '.join(MODELS_TO_RUN)}")
     print(f"Target: water_consumption")
     print(f"Train/Val/Test Split: 2018-2019-2020")
+    print(f"CQR Calibration: {'DISABLED' if args.no_cqr else 'ENABLED'}")
     print("="*70)
     
     # Initialize and run benchmarker
     benchmarker = Benchmarker(DATA_PATH, MODELS_TO_RUN, dataset="Water (Centrum)")
-    benchmarker.run()
+    benchmarker.run(use_cqr=not args.no_cqr)
     
     print("\n" + "="*70)
     print("Water Consumption Benchmarker Complete!")

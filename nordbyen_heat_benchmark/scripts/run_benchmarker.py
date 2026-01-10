@@ -33,6 +33,8 @@ def main():
                         help='Models to benchmark (e.g., --models NHITS_Q TIMESNET_Q TFT_Q)')
     parser.add_argument('--data', default="processing/nordbyen_processing/nordbyen_features_engineered.csv",
                         help='Path to the data CSV file')
+    parser.add_argument('--no-cqr', action='store_true',
+                        help='Disable Conformalized Quantile Regression (CQR) calibration')
     args = parser.parse_args()
     
     # Configuration - path relative to project root (where SLURM runs from)
@@ -40,15 +42,16 @@ def main():
     MODELS_TO_RUN = args.models
     
     print("="*70)
-    print("BENCHMARKER - SLURM JOB")
+    print("HEAT CONSUMPTION BENCHMARKER - NORDBYEN")
     print("="*70)
     print(f"Data: {DATA_PATH}")
     print(f"Models: {', '.join(MODELS_TO_RUN)}")
+    print(f"CQR Calibration: {'DISABLED' if args.no_cqr else 'ENABLED'}")
     print("="*70)
     
     # Initialize and run benchmarker
     benchmarker = Benchmarker(DATA_PATH, MODELS_TO_RUN, dataset="Heat (Nordbyen)")
-    benchmarker.run()
+    benchmarker.run(use_cqr=not args.no_cqr)
     
     print("\n" + "="*70)
     print("Benchmarker Complete!")
