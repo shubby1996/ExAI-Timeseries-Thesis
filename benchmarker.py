@@ -95,6 +95,26 @@ def calculate_miw(y_low: np.ndarray, y_high: np.ndarray) -> float:
     if len(y_low) == 0: return 0.0
     return np.mean(y_high - y_low)
 
+def calculate_pinball_loss(y_true: np.ndarray, y_pred_quantiles: Dict[float, np.ndarray]) -> float:
+    """Calculate average pinball loss across multiple quantiles.
+    
+    Args:
+        y_true: actual values
+        y_pred_quantiles: dict mapping quantile levels (e.g., 0.1, 0.5, 0.9) to predicted values
+        
+    Returns:
+        Average pinball loss across all quantiles
+    """
+    if len(y_true) == 0: return np.nan
+    
+    total_loss = 0.0
+    for tau, y_pred in y_pred_quantiles.items():
+        errors = y_true - y_pred
+        loss = np.where(errors >= 0, tau * errors, (tau - 1) * errors)
+        total_loss += np.mean(loss)
+    
+    return total_loss / len(y_pred_quantiles)
+
 def calculate_crps(y_true: np.ndarray, samples: np.ndarray) -> float:
     """Calculate CRPS from ensemble samples.
     samples shape: (n_predictions, n_samples) or list of arrays
@@ -470,6 +490,15 @@ class TFTAdapter(ModelAdapter):
                 pdf['p10'].values, pdf['p90'].values, self.cqr_s_hat
             )
         
+        # Calculate pinball loss for quantile models
+        if is_quantile:
+            pinball = calculate_pinball_loss(
+                pdf["actual"].values,
+                {0.1: pdf["p10"].values, 0.5: pdf["p50"].values, 0.9: pdf["p90"].values}
+            )
+        else:
+            pinball = np.nan
+        
         metrics = {
             "MAE": mean_absolute_error(pdf["actual"], pdf["p50"]),
             "RMSE": np.sqrt(mean_squared_error(pdf["actual"], pdf["p50"])),
@@ -478,6 +507,7 @@ class TFTAdapter(ModelAdapter):
             "sMAPE": calculate_smape(pdf["actual"].values, pdf["p50"].values),
             "WAPE": calculate_wape(pdf["actual"].values, pdf["p50"].values),
             "MASE": calculate_mase(pdf["actual"].values, pdf["p50"].values, mase_scale),
+            "Pinball": pinball,
             "PICP": calculate_picp(pdf["actual"].values, pdf["p10"].values, pdf["p90"].values) if is_quantile else np.nan,
             "MIW": calculate_miw(pdf["p10"].values, pdf["p90"].values) if is_quantile else np.nan,
             "Winkler": calculate_winkler_score(pdf["actual"].values, pdf["p10"].values, pdf["p90"].values) if is_quantile else np.nan,
@@ -674,6 +704,15 @@ class NeuralForecastAdapter(ModelAdapter):
                 pdf['p10'].values, pdf['p90'].values, self.cqr_s_hat
             )
         
+        # Calculate pinball loss for quantile models
+        if is_quantile:
+            pinball = calculate_pinball_loss(
+                pdf["actual"].values,
+                {0.1: pdf["p10"].values, 0.5: pdf["p50"].values, 0.9: pdf["p90"].values}
+            )
+        else:
+            pinball = np.nan
+        
         metrics = {
             "MAE": mean_absolute_error(pdf["actual"], pdf["p50"]),
             "RMSE": np.sqrt(mean_squared_error(pdf["actual"], pdf["p50"])),
@@ -682,6 +721,7 @@ class NeuralForecastAdapter(ModelAdapter):
             "sMAPE": calculate_smape(pdf["actual"].values, pdf["p50"].values),
             "WAPE": calculate_wape(pdf["actual"].values, pdf["p50"].values),
             "MASE": calculate_mase(pdf["actual"].values, pdf["p50"].values, mase_scale),
+            "Pinball": pinball,
             "PICP": calculate_picp(pdf["actual"].values, pdf["p10"].values, pdf["p90"].values) if is_quantile else np.nan,
             "MIW": calculate_miw(pdf["p10"].values, pdf["p90"].values) if is_quantile else np.nan,
             "Winkler": calculate_winkler_score(pdf["actual"].values, pdf["p10"].values, pdf["p90"].values) if is_quantile else np.nan,
