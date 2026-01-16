@@ -13,6 +13,7 @@ lightning_logs/
 **/checkpoints/
 *.ckpt
 *.pt.ckpt
+**/*.db
 
 # (optional) large model weights
 models/*.pt
