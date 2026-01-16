@@ -113,54 +113,92 @@ def calibration_curve(y_true: np.ndarray, y_low: np.ndarray, y_high: np.ndarray)
     
     return {'nominal': 1 - 2 * quantile_levels, 'empirical': np.array(empirical_coverage)}
 
-def compute_metrics(df):
+def pinball_loss(y_true: np.ndarray, y_pred_quantiles: Dict[float, np.ndarray]) -> float:
+    """Calculate average pinball loss across multiple quantiles.
+    
+    Args:
+        y_true: actual values
+        y_pred_quantiles: dict mapping quantile levels (e.g., 0.1, 0.5, 0.9) to predicted values
+        
+    Returns:
+        Average pinball loss across all quantiles
+    """
+    if len(y_true) == 0:
+        return np.nan
+    
+    total_loss = 0.0
+    for tau, y_pred in y_pred_quantiles.items():
+        errors = y_true - y_pred
+        loss = np.where(errors >= 0, tau * errors, (tau - 1) * errors)
+        total_loss += np.mean(loss)
+    
+    return total_loss / len(y_pred_quantiles)
+
+def compute_metrics(df, is_mse=False):
     mae = df['abs_error'].mean()
     rmse = (df['error'] ** 2).mean() ** 0.5
     mape = df['pct_error'].abs().mean()
-    mape_eps_val = mape_eps(df['actual'].values, df['p50'].values)
+    # mape_eps_val = mape_eps(df['actual'].values, df['p50'].values)
     smape_val = smape(df['actual'].values, df['p50'].values)
     wape_val = wape(df['actual'].values, df['p50'].values)
     mase_scale = mase_denominator(df['actual'].values, m=24)
     mase_val = mase(df['actual'].values, df['p50'].values, mase_scale)
-    picp = ((df['actual'] >= df['p10']) & (df['actual'] <= df['p90'])).mean() * 100
-    miw = (df['p90'] - df['p10']).mean()
     
-    # Calculate CRPS by approximating samples from quantiles
-    crps_values = []
-    for _, row in df.iterrows():
-        # Skip rows with NaN quantiles
-        if pd.isna(row['p10']) or pd.isna(row['p50']) or pd.isna(row['p90']):
-            continue
+    # For MSE models, skip probabilistic metrics
+    if is_mse:
+        picp = np.nan
+        miw = np.nan
+        winkler = np.nan
+        crps = np.nan
+        pinball = np.nan
+    else:
+        picp = ((df['actual'] >= df['p10']) & (df['actual'] <= df['p90'])).mean() * 100
+        miw = (df['p90'] - df['p10']).mean()
         
-        p10, p50, p90 = row['p10'], row['p50'], row['p90']
+        # Calculate pinball loss from quantiles
+        pinball = pinball_loss(
+            df['actual'].values,
+            {0.1: df['p10'].values, 0.5: df['p50'].values, 0.9: df['p90'].values}
+        )
         
-        # Validate quantile ordering
-        if p10 >= p50 or p50 >= p90:
-            continue
+        # Calculate CRPS by approximating samples from quantiles
+        crps_values = []
+        for _, row in df.iterrows():
+            # Skip rows with NaN quantiles
+            if pd.isna(row['p10']) or pd.isna(row['p50']) or pd.isna(row['p90']):
+                continue
+            
+            p10, p50, p90 = row['p10'], row['p50'], row['p90']
+            
+            # Validate quantile ordering
+            if p10 >= p50 or p50 >= p90:
+                continue
+            
+            # Approximate std from 80% interval
+            std = (p90 - p10) / 2.56
+            
+            # Skip if std is invalid (should not happen with valid quantiles)
+            if std <= 0:
+                continue
+            
+            samples = np.random.normal(p50, std, 100)
+            crps_values.append(crps_ensemble(row['actual'], samples))
         
-        # Approximate std from 80% interval
-        std = (p90 - p10) / 2.56
-        
-        # Skip if std is invalid (should not happen with valid quantiles)
-        if std <= 0:
-            continue
-        
-        samples = np.random.normal(p50, std, 100)
-        crps_values.append(crps_ensemble(row['actual'], samples))
-    
-    crps = np.mean(crps_values) if crps_values else np.nan
+        crps = np.mean(crps_values) if crps_values else np.nan
+        winkler = winkler_score(df['actual'].values, df['p10'].values, df['p90'].values) if (df['p10'].notna().any() and df['p90'].notna().any()) else np.nan
     
     return {
         'MAE': mae,
         'RMSE': rmse,
         'MAPE': mape,
-        'MAPE_EPS': mape_eps_val,
+        # 'MAPE_EPS': mape_eps_val,
         'sMAPE': smape_val,
         'WAPE': wape_val,
         'MASE': mase_val,
+        'Pinball': pinball,
         'PICP': picp,
         'MIW': miw,
-        'Winkler': winkler_score(df['actual'].values, df['p10'].values, df['p90'].values) if (df['p10'].notna().any() and df['p90'].notna().any()) else np.nan,
+        'Winkler': winkler,
         'CRPS': crps
     }
 
@@ -308,7 +346,8 @@ def main():
         df = pd.read_csv(pred_file)
         df['timestamp'] = pd.to_datetime(df['timestamp'])
         df = compute_errors(df)
-        metrics = compute_metrics(df)
+        is_mse = 'MSE' in model
+        metrics = compute_metrics(df, is_mse=is_mse)
         results[model] = {'df': df, 'metrics': metrics}
         
         # # Plots for each model - save to same results directory
@@ -326,27 +365,63 @@ def main():
         print(summary.round(3))
         summary.to_csv(os.path.join(results_dir, "benchmark_metrics_comparison.csv"))
 
-        # Bar plots for metrics comparison
-        metrics_to_plot = ['MAE', 'RMSE', 'MAPE', 'sMAPE', 'WAPE', 'MASE', 'Winkler', 'PICP', 'MIW', 'CRPS']
+        # Bar plots for metrics comparison - separated into point forecast and probabilistic
+        point_forecast_metrics = ['MAE', 'RMSE', 'MAPE', 'sMAPE', 'WAPE', 'MASE']
+        probabilistic_metrics = ['Pinball', 'Winkler', 'PICP', 'MIW', 'CRPS']
+        
+        # Plot point forecast metrics (2 rows x 3 cols)
         cols = 3
-        rows = math.ceil(len(metrics_to_plot) / cols)
+        rows = math.ceil(len(point_forecast_metrics) / cols)
         fig, axes = plt.subplots(rows, cols, figsize=(6 * cols, 4 * rows))
         axes = axes.flatten()
-        for i, metric in enumerate(metrics_to_plot):
+        for i, metric in enumerate(point_forecast_metrics):
             if metric not in summary.columns:
                 axes[i].set_visible(False)
                 continue
-            sns.barplot(x=summary.index, y=summary[metric], ax=axes[i], palette="Set2")
-            axes[i].set_title(metric)
+            if summary[metric].isna().all():
+                axes[i].set_visible(False)
+                continue
+            metric_data = summary[metric].dropna()
+            if len(metric_data) == 0:
+                axes[i].set_visible(False)
+                continue
+            sns.barplot(x=metric_data.index, y=metric_data.values, ax=axes[i], palette="Set2")
+            axes[i].set_title(metric, fontsize=12, fontweight='bold')
             axes[i].set_xlabel("")
             axes[i].set_ylabel(metric)
             axes[i].grid(True, alpha=0.3)
-        for j in range(len(metrics_to_plot), len(axes)):
+            axes[i].tick_params(axis='x', rotation=45)
+        for j in range(len(point_forecast_metrics), len(axes)):
             axes[j].set_visible(False)
         plt.tight_layout()
-        plt.savefig(os.path.join(results_dir, "benchmark_metrics_barplots.png"), dpi=300)
-        print(f"Bar plots for metrics saved to {os.path.join(results_dir, 'benchmark_metrics_barplots.png')}")
+        plt.savefig(os.path.join(results_dir, "benchmark_metrics_point_forecast.png"), dpi=300)
+        print(f"Point forecast metrics plot saved to {os.path.join(results_dir, 'benchmark_metrics_point_forecast.png')}")
         plt.close()
+        
+        # Plot probabilistic metrics (1 row x 4 cols with thinner bars)
+        prob_metrics_to_plot = [m for m in probabilistic_metrics if m in summary.columns and not summary[m].isna().all()]
+        if prob_metrics_to_plot:
+            n_prob = len(prob_metrics_to_plot)
+            fig, axes = plt.subplots(1, n_prob, figsize=(4.5 * n_prob, 5))
+            if n_prob == 1:
+                axes = [axes]
+            
+            for i, metric in enumerate(prob_metrics_to_plot):
+                metric_data = summary[metric].dropna()
+                if len(metric_data) == 0:
+                    axes[i].set_visible(False)
+                    continue
+                sns.barplot(x=metric_data.index, y=metric_data.values, ax=axes[i], palette="Set3", width=0.6)
+                axes[i].set_title(metric, fontsize=12, fontweight='bold')
+                axes[i].set_xlabel("")
+                axes[i].set_ylabel(metric)
+                axes[i].grid(True, alpha=0.3)
+                axes[i].tick_params(axis='x', rotation=45)
+            
+            plt.tight_layout()
+            plt.savefig(os.path.join(results_dir, "benchmark_metrics_probabilistic.png"), dpi=300)
+            print(f"Probabilistic metrics plot saved to {os.path.join(results_dir, 'benchmark_metrics_probabilistic.png')}")
+            plt.close()
 
         # Calibration curves
         plot_calibration(results, results_dir)
