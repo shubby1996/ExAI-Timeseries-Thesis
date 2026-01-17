@@ -29,6 +29,8 @@ models/*.pt.ckpt
 !water_benchmark_runner.ipynb
 **/*.err
 **/*.log
+**/*.html
+**/*.json
 
 
 # for the .csv files in data folde
@@ -36,13 +38,3 @@ models/*.pt.ckpt
 
 # # for the .csv anywhere
 # **/*.csv
-
-#temp ignores
-hpo/check_status.py
-hpo/HPO_STRATEGY.md
-hpo/run_stage1.slurm
-hpo/run_stage2.slurm
-hpo/stage1_architecture.py
-hpo/stage2_calibration.py
-hpo/STRATEGY_SUMMARY.md
-hpo/submit_experiment.py

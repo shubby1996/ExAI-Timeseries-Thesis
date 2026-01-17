@@ -868,6 +868,42 @@ class Benchmarker:
         except Exception as e:
             print(f"\n⚠️  Could not generate improvement summary: {e}")
 
+    def _get_dataset_splits(self) -> dict:
+        """Get dataset-specific train/val/test splits.
+        
+        Returns dict with train_end, val_end, test_start, and n_predictions.
+        """
+        # Detect if this is water dataset
+        lower_path = self.csv_path.lower()
+        is_water = 'water' in lower_path or 'centrum' in lower_path or 'tommerby' in lower_path
+        
+        if is_water:
+            # Water datasets: New optimized splits for better seasonal coverage
+            # Train: 01-04-2018 → 04-12-2019 (612 days = 63.9%)
+            # Val:   05-12-2019 → 06-05-2020 (154 days = 16.1%)
+            # Test:  07-05-2020 → 14-11-2020 (192 days = 20.0%)
+            return {
+                'train_end': '2019-12-04 23:00:00+00:00',
+                'val_end': '2020-05-06 23:00:00+00:00',
+                'test_start': '2020-05-07 00:00:00+00:00',
+                'n_predictions': 192,
+                'cal_start': '2019-12-05 00:00:00+00:00',  # Start of validation for calibration
+                'cal_end': '2020-02-05 00:00:00+00:00'     # First ~2 months of val for calibration
+            }
+        else:
+            # Heat dataset: Keep existing splits
+            # Train: 2015-05-01 → 2018-12-31
+            # Val:   2019-01-01 → 2019-12-31
+            # Test:  2020-01-01 → 2020-11-14 (319 days)
+            return {
+                'train_end': '2018-12-31 23:00:00+00:00',
+                'val_end': '2019-12-31 23:00:00+00:00',
+                'test_start': '2020-01-01 00:00:00+00:00',
+                'n_predictions': 319,
+                'cal_start': '2019-01-01 00:00:00+00:00',
+                'cal_end': '2019-07-01 00:00:00+00:00'
+            }
+    
     def run(self, use_cqr: bool = True, alpha: float = 0.2):
         """Run benchmark with optional CQR calibration.
         
@@ -875,18 +911,28 @@ class Benchmarker:
             use_cqr: Whether to apply Conformalized Quantile Regression calibration
             alpha: Miscoverage level for CQR (default 0.2 for 80% coverage)
         """
+        splits = self._get_dataset_splits()
+        
         print("\n" + "="*70)
         print("BENCHMARKER CONFIGURATION")
         print("="*70)
-        print(f"CQR Calibration: {'ENABLED' if use_cqr else 'DISABLED'}")
+        print(f"Dataset: {self.dataset}")
+        print(f"Data file: {self.csv_path}")
+        print(f"\nData Splits:")
+        print(f"  Train:      start → {splits['train_end'][:10]}")
+        print(f"  Validation: {splits['train_end'][:10]} → {splits['val_end'][:10]}")
+        print(f"  Test:       {splits['test_start'][:10]} → 2020-11-14 ({splits['n_predictions']} days)")
+        print(f"\nCQR Calibration: {'ENABLED' if use_cqr else 'DISABLED'}")
         if use_cqr:
-            print(f"Target Coverage: {(1-alpha)*100:.0f}%")
+            print(f"  Target Coverage: {(1-alpha)*100:.0f}%")
+            print(f"  Calibration period: {splits['cal_start'][:10]} → {splits['cal_end'][:10]}")
+        print(f"\nModels to run:")
         for mk in self.models_to_run:
             if mk not in self.configs: continue
             cfg = self.configs[mk]
             has_best = cfg.get("best_params") is not None
             hpo_status = "✓ Using HPO best params" if has_best else "✗ No HPO params (using defaults)"
-            print(f"{mk}: n_epochs={cfg.get('n_epochs', 10)}, HPO Status: {hpo_status}")
+            print(f"  {mk}: n_epochs={cfg.get('n_epochs', 10)}, {hpo_status}")
         print("="*70 + "\n")
         
         for mk in self.models_to_run:
@@ -900,17 +946,18 @@ class Benchmarker:
             else:  # NHITS and other Darts models
                 adapter = DartsAdapter(mk, cfg)
             
-            # Train on 2018 data with validation on 2019 data
-            adapter.train(self.csv_path, "2018-12-31 23:00:00+00:00", "2019-12-31 23:00:00+00:00")
+            # Train with dataset-specific splits
+            print(f"\n[{mk}] Training with splits: train_end={splits['train_end'][:10]}, val_end={splits['val_end'][:10]}")
+            adapter.train(self.csv_path, splits['train_end'], splits['val_end'])
             
             # Apply CQR calibration if requested and model is quantile-based
             if use_cqr and cfg.get("quantile", True):
                 print(f"\n[{mk}] Performing CQR calibration...")
-                # Use first 6 months of 2019 for calibration
+                print(f"  Calibration period: {splits['cal_start'][:10]} → {splits['cal_end'][:10]}")
                 cal_preds = adapter.get_calibration_predictions(
                     self.csv_path, 
-                    "2019-01-01 00:00:00+00:00",
-                    "2019-07-01 00:00:00+00:00"
+                    splits['cal_start'],
+                    splits['cal_end']
                 )
                 
                 if len(cal_preds) > 0:
@@ -925,8 +972,13 @@ class Benchmarker:
                 else:
                     print(f"[{mk}] WARNING: No calibration predictions obtained, skipping CQR")
             
-            # Evaluate on 2020 test data
-            metrics, pdf = adapter.evaluate(self.csv_path, "2020-01-01 00:00:00+00:00")
+            # Evaluate on test data (FULL test period)
+            print(f"\n[{mk}] Evaluating on test set: {splits['test_start'][:10]} + {splits['n_predictions']} days")
+            metrics, pdf = adapter.evaluate(
+                self.csv_path, 
+                splits['test_start'],
+                n_predictions=splits['n_predictions']
+            )
             metrics["Model"] = mk
             metrics["CQR"] = use_cqr and cfg.get("quantile", True)
             self.results.append(metrics)

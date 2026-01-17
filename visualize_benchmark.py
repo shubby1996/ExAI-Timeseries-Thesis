@@ -8,6 +8,9 @@ import seaborn as sns
 import numpy as np
 from properscoring import crps_ensemble
 from typing import Dict
+import plotly.graph_objects as go
+import plotly.express as px
+from plotly.subplots import make_subplots
 
 
 def find_latest_prediction_file(results_dir, model_name):
@@ -426,6 +429,40 @@ def main():
         # Calibration curves
         plot_calibration(results, results_dir)
 
+        # ===== INTERACTIVE PLOTLY VISUALIZATIONS =====
+        print("\n" + "="*70)
+        print("Generating Interactive Plotly Visualizations...")
+        print("="*70)
+        
+        # Create directory for interactive plots
+        interactive_dir = os.path.join(results_dir, "interactive_plots")
+        os.makedirs(interactive_dir, exist_ok=True)
+        
+        # Generate interactive plots for each model
+        for model, r in results.items():
+            df = r['df']
+            metrics = r['metrics']
+            
+            # Time series plot
+            ts_path = os.path.join(interactive_dir, f"{model.lower()}_timeseries.html")
+            plot_interactive_timeseries(df, model, ts_path)
+            print(f"  ✓ {model}: Interactive time series saved")
+            
+            # Error distribution plot
+            err_path = os.path.join(interactive_dir, f"{model.lower()}_error_distribution.html")
+            plot_interactive_error_distribution(df, model, err_path)
+            print(f"  ✓ {model}: Interactive error distribution saved")
+            
+            # Scatter plot
+            scatter_path = os.path.join(interactive_dir, f"{model.lower()}_scatter.html")
+            plot_interactive_scatter(df, model, metrics, scatter_path)
+            print(f"  ✓ {model}: Interactive scatter plot saved")
+        
+        # Metrics comparison
+        plot_interactive_metrics_comparison(results, interactive_dir)
+        
+        print(f"\nAll interactive plots saved to: {interactive_dir}")
+
         # Box plots for prediction distributions
         pred_data = []
         for model, r in results.items():
@@ -467,6 +504,221 @@ def main():
     plt.savefig(os.path.join(results_dir, "benchmark_comparison_sidebyside.png"), dpi=300)
     print(f"Side-by-side comparison plot saved to {os.path.join(results_dir, 'benchmark_comparison_sidebyside.png')}")
     plt.show()
+
+def plot_interactive_timeseries(df, model_name, save_path):
+    """Create interactive time series plot with Plotly."""
+    fig = go.Figure()
+    
+    # Add actual values
+    fig.add_trace(go.Scatter(
+        x=df['timestamp'],
+        y=df['actual'],
+        mode='lines',
+        name='Actual',
+        line=dict(color='black', width=2),
+        hovertemplate='<b>Actual</b><br>Time: %{x}<br>Value: %{y:.4f}<extra></extra>'
+    ))
+    
+    # Add predicted median
+    fig.add_trace(go.Scatter(
+        x=df['timestamp'],
+        y=df['p50'],
+        mode='lines',
+        name='Predicted (Median)',
+        line=dict(color='#1f77b4', width=2),
+        hovertemplate='<b>Predicted</b><br>Time: %{x}<br>Value: %{y:.4f}<extra></extra>'
+    ))
+    
+    # Add confidence interval as filled area
+    if df['p10'].notna().any() and df['p90'].notna().any():
+        fig.add_trace(go.Scatter(
+            x=df['timestamp'],
+            y=df['p90'],
+            fill=None,
+            mode='lines',
+            line_color='rgba(0,0,0,0)',
+            showlegend=False,
+            hoverinfo='skip'
+        ))
+        
+        fig.add_trace(go.Scatter(
+            x=df['timestamp'],
+            y=df['p10'],
+            fillcolor='rgba(31, 119, 180, 0.2)',
+            fill='tonexty',
+            mode='lines',
+            line_color='rgba(0,0,0,0)',
+            name='80% Interval',
+            hoverinfo='skip'
+        ))
+    
+    fig.update_layout(
+        title=f'{model_name} - Full Test Set Forecast',
+        xaxis_title='Timestamp',
+        yaxis_title='Value (Scaled)',
+        hovermode='x unified',
+        height=500,
+        template='plotly_white',
+        legend=dict(yanchor='top', y=0.99, xanchor='left', x=0.01)
+    )
+    
+    fig.write_html(save_path)
+    # Also save as JSON for notebook embedding
+    json_path = save_path.replace('.html', '.json')
+    fig.write_json(json_path)
+    return fig
+
+def plot_interactive_error_distribution(df, model_name, save_path):
+    """Create interactive error distribution plots with Plotly."""
+    fig = make_subplots(
+        rows=1, cols=2,
+        subplot_titles=('Absolute Error Distribution', 'Percentage Error Distribution')
+    )
+    
+    # Absolute error histogram
+    fig.add_trace(
+        go.Histogram(
+            x=df['abs_error'],
+            name='Absolute Error',
+            nbinsx=50,
+            marker_color='#FF9999',
+            hovertemplate='<b>Absolute Error</b><br>Range: %{x}<br>Count: %{y}<extra></extra>'
+        ),
+        row=1, col=1
+    )
+    
+    # Percentage error histogram
+    fig.add_trace(
+        go.Histogram(
+            x=df['pct_error'],
+            name='Percentage Error',
+            nbinsx=50,
+            marker_color='#66B2FF',
+            hovertemplate='<b>Percentage Error</b><br>Range: %{x}%<br>Count: %{y}<extra></extra>'
+        ),
+        row=1, col=2
+    )
+    
+    fig.update_xaxes(title_text='Absolute Error', row=1, col=1)
+    fig.update_xaxes(title_text='Percentage Error (%)', row=1, col=2)
+    fig.update_yaxes(title_text='Frequency', row=1, col=1)
+    fig.update_yaxes(title_text='Frequency', row=1, col=2)
+    
+    fig.update_layout(
+        title_text=f'{model_name} - Error Distributions',
+        height=400,
+        showlegend=True,
+        template='plotly_white'
+    )
+    
+    fig.write_html(save_path)
+    json_path = save_path.replace('.html', '.json')
+    fig.write_json(json_path)
+    return fig
+
+def plot_interactive_scatter(df, model_name, metrics, save_path):
+    """Create interactive scatter plot of actual vs predicted."""
+    fig = go.Figure()
+    
+    fig.add_trace(go.Scatter(
+        x=df['actual'],
+        y=df['p50'],
+        mode='markers',
+        marker=dict(
+            size=5,
+            color=df['abs_error'],
+            colorscale='Viridis',
+            showscale=True,
+            colorbar=dict(title='Absolute Error'),
+            line=dict(width=0.5, color='white')
+        ),
+        text=[f'Actual: {a:.4f}<br>Predicted: {p:.4f}<br>Error: {e:.4f}' 
+              for a, p, e in zip(df['actual'], df['p50'], df['abs_error'])],
+        hovertemplate='%{text}<extra></extra>',
+        name='Predictions'
+    ))
+    
+    # Add perfect prediction line
+    min_val = min(df['actual'].min(), df['p50'].min())
+    max_val = max(df['actual'].max(), df['p50'].max())
+    fig.add_trace(go.Scatter(
+        x=[min_val, max_val],
+        y=[min_val, max_val],
+        mode='lines',
+        line=dict(color='red', width=2, dash='dash'),
+        name='Perfect Prediction',
+        hoverinfo='skip'
+    ))
+    
+    fig.update_layout(
+        title=f'{model_name} - Actual vs Predicted',
+        xaxis_title='Actual Value',
+        yaxis_title='Predicted Value (Median)',
+        height=500,
+        width=600,
+        template='plotly_white',
+        hovermode='closest'
+    )
+    
+    fig.write_html(save_path)
+    json_path = save_path.replace('.html', '.json')
+    fig.write_json(json_path)
+    return fig
+
+def plot_interactive_metrics_comparison(results_dict, results_dir):
+    """Create interactive metrics comparison using Plotly."""
+    # Prepare data
+    summary = pd.DataFrame({m: r['metrics'] for m, r in results_dict.items()}).T
+    summary = summary.reset_index().rename(columns={'index': 'Model'})
+    
+    # Select point forecast metrics (applicable to all models)
+    point_metrics = ['MAE', 'RMSE', 'MAPE', 'sMAPE', 'WAPE', 'MASE']
+    
+    fig = make_subplots(
+        rows=2, cols=3,
+        subplot_titles=point_metrics,
+        specs=[[{'type': 'bar'}, {'type': 'bar'}, {'type': 'bar'}],
+               [{'type': 'bar'}, {'type': 'bar'}, {'type': 'bar'}]]
+    )
+    
+    colors = px.colors.qualitative.Set2
+    
+    for idx, metric in enumerate(point_metrics):
+        row = (idx // 3) + 1
+        col = (idx % 3) + 1
+        
+        if metric in summary.columns:
+            metric_data = summary[['Model', metric]].dropna()
+            
+            fig.add_trace(
+                go.Bar(
+                    x=metric_data['Model'],
+                    y=metric_data[metric],
+                    name=metric,
+                    marker_color=colors[idx % len(colors)],
+                    hovertemplate='<b>%{x}</b><br>' + metric + ': %{y:.4f}<extra></extra>'
+                ),
+                row=row, col=col
+            )
+            
+            fig.update_yaxes(title_text=metric, row=row, col=col)
+    
+    fig.update_xaxes(tickangle=-45)
+    fig.update_layout(
+        title_text='Model Metrics Comparison (Point Forecast)',
+        height=700,
+        showlegend=False,
+        template='plotly_white'
+    )
+    
+    html_path = os.path.join(results_dir, 'interactive_metrics_comparison.html')
+    fig.write_html(html_path)
+    json_path = html_path.replace('.html', '.json')
+    fig.write_json(json_path)
+    print(f"Interactive metrics comparison saved to {html_path}")
+    return fig
+
+
 
 if __name__ == "__main__":
     main()
