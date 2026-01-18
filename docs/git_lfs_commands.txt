@@ -1,0 +1,29 @@
+git lfs install
+
+
+git lfs track "*.ipynb"
+git lfs track "*.parquet"
+git lfs track "*.h5"
+git lfs track "*.pkl"
+git lfs track "*.joblib"
+git lfs track "*.npz"
+
+
+git lfs install
+
+git add .gitattributes
+git commit -m "Configure Git LFS tracking"
+
+
+git lfs ls-files | grep -F "heat_benchmark_runner.ipynb"
+git lfs ls-files | grep -F "water_centrum_benchmark/notebooks/water_benchmark_runner.ipynb"
+git lfs ls-files | grep -F "water_tommerby_benchmark/notebooks/water_benchmark_runner.ipynb"
+
+git add --renormalize path/to/file
+git add --renormalize water_centrum_benchmark/notebooks/water_benchmark_runner.ipynb
+git add --renormalize water_tommerby_benchmark/notebooks/water_benchmark_runner.ipynb
+
+git add -A
+git commit -m "Your message"
+
+git push
