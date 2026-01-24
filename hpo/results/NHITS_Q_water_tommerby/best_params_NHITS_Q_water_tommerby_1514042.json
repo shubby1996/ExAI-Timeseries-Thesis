@@ -1,0 +1,109 @@
+{
+  "model": "NHITS_Q",
+  "dataset": "water_tommerby",
+  "job_id": "1514042",
+  "optimization_date": "2026-01-20T09:01:21.845346",
+  "n_trials": 50,
+  "n_completed": 50,
+  "n_pareto_optimal": 6,
+  "best_trial_number": 38,
+  "best_mae": 0.002594433476795878,
+  "best_picp_approx": 68.33333333333334,
+  "best_params": {
+    "num_stacks": 2,
+    "num_blocks": 2,
+    "num_layers": 3,
+    "layer_widths": 512,
+    "lr": 0.00015568525704502448,
+    "dropout": 0.36074096640552017,
+    "weight_decay": 8.66476297852352e-06
+  },
+  "study_name": "NHITS_Q_water_tommerby_1514042",
+  "storage_path": "sqlite:///hpo/results/NHITS_Q_water_tommerby/study_NHITS_Q_water_tommerby_1514042.db",
+  "all_pareto_trials": [
+    {
+      "trial": 3,
+      "mae": 0.0035456009211093653,
+      "picp_penalty": 1.6666666666666714,
+      "params": {
+        "num_stacks": 5,
+        "num_blocks": 2,
+        "num_layers": 4,
+        "layer_widths": 512,
+        "lr": 0.00015047829546080193,
+        "dropout": 0.11602274799580252,
+        "weight_decay": 1.668239270063302e-05
+      }
+    },
+    {
+      "trial": 7,
+      "mae": 0.0035487815687794077,
+      "picp_penalty": 0.8333333333333286,
+      "params": {
+        "num_stacks": 5,
+        "num_blocks": 2,
+        "num_layers": 3,
+        "layer_widths": 256,
+        "lr": 0.0003309502198738703,
+        "dropout": 0.07966342299657067,
+        "weight_decay": 5.5077076308171595e-06
+      }
+    },
+    {
+      "trial": 27,
+      "mae": 0.0036472957680529143,
+      "picp_penalty": 0.0,
+      "params": {
+        "num_stacks": 2,
+        "num_blocks": 2,
+        "num_layers": 2,
+        "layer_widths": 1024,
+        "lr": 2.7464788168382966e-05,
+        "dropout": 0.0710537206201468,
+        "weight_decay": 0.00015755218249280416
+      }
+    },
+    {
+      "trial": 32,
+      "mae": 0.0029066896314642638,
+      "picp_penalty": 8.75,
+      "params": {
+        "num_stacks": 4,
+        "num_blocks": 3,
+        "num_layers": 4,
+        "layer_widths": 256,
+        "lr": 0.00011610442608067415,
+        "dropout": 0.10806186834009669,
+        "weight_decay": 1.280455833675328e-05
+      }
+    },
+    {
+      "trial": 33,
+      "mae": 0.002969593095570893,
+      "picp_penalty": 5.0,
+      "params": {
+        "num_stacks": 2,
+        "num_blocks": 3,
+        "num_layers": 4,
+        "layer_widths": 1024,
+        "lr": 3.698503725878293e-05,
+        "dropout": 0.3335123037227661,
+        "weight_decay": 3.6065626764090136e-06
+      }
+    },
+    {
+      "trial": 38,
+      "mae": 0.002594433476795878,
+      "picp_penalty": 11.666666666666657,
+      "params": {
+        "num_stacks": 2,
+        "num_blocks": 2,
+        "num_layers": 3,
+        "layer_widths": 512,
+        "lr": 0.00015568525704502448,
+        "dropout": 0.36074096640552017,
+        "weight_decay": 8.66476297852352e-06
+      }
+    }
+  ]
+}

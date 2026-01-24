@@ -49,7 +49,9 @@ def main():
     
     # Initialize and run benchmarker
     benchmarker = Benchmarker(DATA_PATH, MODELS_TO_RUN, dataset="Water (Tommerby)")
-    benchmarker.run(use_cqr=not args.no_cqr)
+    # benchmarker.run(use_cqr=not args.no_cqr)
+    benchmarker.run(use_cqr=True)
+
     
     print("\n" + "="*70)
     print("Water Consumption Benchmarker Complete!")

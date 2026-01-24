@@ -1,0 +1,35 @@
+{
+  "model": "TFT_Q",
+  "dataset": "water_centrum",
+  "job_id": "1516074",
+  "optimization_date": "2026-01-24T01:01:54.163324",
+  "n_trials": 20,
+  "n_completed": 20,
+  "n_pareto_optimal": 1,
+  "best_trial_number": 10,
+  "best_mae": 0.002893442024232513,
+  "best_picp_approx": 73.33333333333333,
+  "best_params": {
+    "hidden_size": 128,
+    "lstm_layers": 1,
+    "num_attention_heads": 2,
+    "dropout": 0.24344345141698318,
+    "lr": 0.000998797876874467
+  },
+  "study_name": "TFT_Q_water_centrum_1516074",
+  "storage_path": "sqlite:///hpo/results/TFT_Q_water_centrum/study_TFT_Q_water_centrum_1516074.db",
+  "all_pareto_trials": [
+    {
+      "trial": 10,
+      "mae": 0.002893442024232513,
+      "picp_penalty": 6.666666666666671,
+      "params": {
+        "hidden_size": 128,
+        "lstm_layers": 1,
+        "num_attention_heads": 2,
+        "dropout": 0.24344345141698318,
+        "lr": 0.000998797876874467
+      }
+    }
+  ]
+}

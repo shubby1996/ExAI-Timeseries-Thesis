@@ -1,0 +1,47 @@
+{
+  "model": "TIMESNET_Q",
+  "dataset": "water_tommerby",
+  "job_id": "1511651",
+  "optimization_date": "2026-01-18T03:37:02.034716",
+  "n_trials": 50,
+  "n_completed": 50,
+  "n_pareto_optimal": 2,
+  "best_trial_number": 33,
+  "best_mae": 0.0035895366450424218,
+  "best_picp_approx": 77.91666666666667,
+  "best_params": {
+    "hidden_size": 64,
+    "conv_hidden_size": 32,
+    "top_k": 4,
+    "lr": 4.348490973899993e-05,
+    "dropout": 0.18695624769147928
+  },
+  "study_name": "TIMESNET_Q_water_tommerby_1511651",
+  "storage_path": "sqlite:///hpo/results/TIMESNET_Q_water_tommerby/study_TIMESNET_Q_water_tommerby_1511651.db",
+  "all_pareto_trials": [
+    {
+      "trial": 33,
+      "mae": 0.0035895366450424218,
+      "picp_penalty": 2.0833333333333286,
+      "params": {
+        "hidden_size": 64,
+        "conv_hidden_size": 32,
+        "top_k": 4,
+        "lr": 4.348490973899993e-05,
+        "dropout": 0.18695624769147928
+      }
+    },
+    {
+      "trial": 38,
+      "mae": 0.0040486507654588725,
+      "picp_penalty": 0.8333333333333286,
+      "params": {
+        "hidden_size": 128,
+        "conv_hidden_size": 32,
+        "top_k": 2,
+        "lr": 2.7404031018550247e-05,
+        "dropout": 0.3238986041064292
+      }
+    }
+  ]
+}

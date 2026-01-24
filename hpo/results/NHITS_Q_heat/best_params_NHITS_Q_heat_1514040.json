@@ -1,0 +1,81 @@
+{
+  "model": "NHITS_Q",
+  "dataset": "heat",
+  "job_id": "1514040",
+  "optimization_date": "2026-01-20T10:13:54.983319",
+  "n_trials": 50,
+  "n_completed": 50,
+  "n_pareto_optimal": 4,
+  "best_trial_number": 8,
+  "best_mae": 0.07912998874889782,
+  "best_picp_approx": 51.24999999999999,
+  "best_params": {
+    "num_stacks": 5,
+    "num_blocks": 2,
+    "num_layers": 4,
+    "layer_widths": 1024,
+    "lr": 0.00019098733812291584,
+    "dropout": 0.11220293590838439,
+    "weight_decay": 5.222192851692879e-07
+  },
+  "study_name": "NHITS_Q_heat_1514040",
+  "storage_path": "sqlite:///hpo/results/NHITS_Q_heat/study_NHITS_Q_heat_1514040.db",
+  "all_pareto_trials": [
+    {
+      "trial": 4,
+      "mae": 0.13635729242671105,
+      "picp_penalty": 0.0,
+      "params": {
+        "num_stacks": 3,
+        "num_blocks": 2,
+        "num_layers": 3,
+        "layer_widths": 256,
+        "lr": 0.004088644780781948,
+        "dropout": 0.05200146162653766,
+        "weight_decay": 8.302464857619021e-07
+      }
+    },
+    {
+      "trial": 6,
+      "mae": 0.08298729835607474,
+      "picp_penalty": 0.4166666666666714,
+      "params": {
+        "num_stacks": 4,
+        "num_blocks": 1,
+        "num_layers": 2,
+        "layer_widths": 512,
+        "lr": 0.0001245302763196239,
+        "dropout": 0.3806409898783003,
+        "weight_decay": 5.570684044879114e-06
+      }
+    },
+    {
+      "trial": 8,
+      "mae": 0.07912998874889782,
+      "picp_penalty": 28.750000000000007,
+      "params": {
+        "num_stacks": 5,
+        "num_blocks": 2,
+        "num_layers": 4,
+        "layer_widths": 1024,
+        "lr": 0.00019098733812291584,
+        "dropout": 0.11220293590838439,
+        "weight_decay": 5.222192851692879e-07
+      }
+    },
+    {
+      "trial": 16,
+      "mae": 0.08129999682381722,
+      "picp_penalty": 2.0833333333333286,
+      "params": {
+        "num_stacks": 3,
+        "num_blocks": 1,
+        "num_layers": 2,
+        "layer_widths": 1024,
+        "lr": 2.4886350740609745e-05,
+        "dropout": 0.22173072632739027,
+        "weight_decay": 0.00019837747136203384
+      }
+    }
+  ]
+}

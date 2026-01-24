@@ -1,0 +1,47 @@
+{
+  "model": "TFT_Q",
+  "dataset": "heat",
+  "job_id": "1516073",
+  "optimization_date": "2026-01-24T04:43:01.885922",
+  "n_trials": 20,
+  "n_completed": 20,
+  "n_pareto_optimal": 2,
+  "best_trial_number": 9,
+  "best_mae": 0.0639759247084092,
+  "best_picp_approx": 75.0,
+  "best_params": {
+    "hidden_size": 128,
+    "lstm_layers": 2,
+    "num_attention_heads": 2,
+    "dropout": 0.1610182806965091,
+    "lr": 0.0005568648664419014
+  },
+  "study_name": "TFT_Q_heat_1516073",
+  "storage_path": "sqlite:///hpo/results/TFT_Q_heat/study_TFT_Q_heat_1516073.db",
+  "all_pareto_trials": [
+    {
+      "trial": 9,
+      "mae": 0.0639759247084092,
+      "picp_penalty": 5.0,
+      "params": {
+        "hidden_size": 128,
+        "lstm_layers": 2,
+        "num_attention_heads": 2,
+        "dropout": 0.1610182806965091,
+        "lr": 0.0005568648664419014
+      }
+    },
+    {
+      "trial": 12,
+      "mae": 0.1142740021152244,
+      "picp_penalty": 2.5,
+      "params": {
+        "hidden_size": 128,
+        "lstm_layers": 2,
+        "num_attention_heads": 4,
+        "dropout": 0.2793318272240909,
+        "lr": 0.00011181373639352914
+      }
+    }
+  ]
+}
