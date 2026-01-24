@@ -1,0 +1,47 @@
+{
+  "model": "TIMESNET_Q",
+  "dataset": "heat",
+  "job_id": "1512366",
+  "optimization_date": "2026-01-19T14:26:34.679747",
+  "n_trials": 50,
+  "n_completed": 50,
+  "n_pareto_optimal": 2,
+  "best_trial_number": 33,
+  "best_mae": 0.06385644633464498,
+  "best_picp_approx": 73.75,
+  "best_params": {
+    "hidden_size": 256,
+    "conv_hidden_size": 64,
+    "top_k": 3,
+    "lr": 1.4066283186407797e-05,
+    "dropout": 0.21736875017594176
+  },
+  "study_name": "TIMESNET_Q_heat_1512366",
+  "storage_path": "sqlite:///hpo/results/TIMESNET_Q_heat/study_TIMESNET_Q_heat_1512366.db",
+  "all_pareto_trials": [
+    {
+      "trial": 29,
+      "mae": 0.09820464398100116,
+      "picp_penalty": 4.166666666666671,
+      "params": {
+        "hidden_size": 256,
+        "conv_hidden_size": 64,
+        "top_k": 5,
+        "lr": 0.0072329661666116945,
+        "dropout": 0.24355363292668236
+      }
+    },
+    {
+      "trial": 33,
+      "mae": 0.06385644633464498,
+      "picp_penalty": 6.25,
+      "params": {
+        "hidden_size": 256,
+        "conv_hidden_size": 64,
+        "top_k": 3,
+        "lr": 1.4066283186407797e-05,
+        "dropout": 0.21736875017594176
+      }
+    }
+  ]
+}

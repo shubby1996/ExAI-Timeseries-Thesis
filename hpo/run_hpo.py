@@ -51,8 +51,13 @@ from hpo.hpo_config import (
     get_timesnet_search_space,
     DATASET_PATHS,
     SPLIT_CONFIG,
-    HPO_TRAINING_CONFIG
+    HPO_TRAINING_CONFIG,
+    HPO_TRAINING_CONFIG_TFT
 )
+
+# Global overrides for testing (set via command line args)
+N_EPOCHS_OVERRIDE = None
+N_STEPS_OVERRIDE = None
 
 
 def to_naive(ts_str: str) -> pd.Timestamp:
@@ -73,7 +78,9 @@ def evaluate_model_walk_forward(
     val_data: Dict[str, TimeSeries],
     state: mp.PreprocessingState,
     n_steps: int = 10,
-    is_tft: bool = False
+    is_tft: bool = False,
+    model_type: str = "nhits",
+    csv_path: str = None
 ) -> Tuple[float, float]:
     """
     Walk-forward evaluation on validation set.
@@ -85,26 +92,56 @@ def evaluate_model_walk_forward(
     val_past = val_data["past_covariates"]
     val_future = val_data.get("future_covariates", None)
     
+    # Load raw dataframe for getting unscaled actuals (like benchmarker does)
+    df_full = None
+    if csv_path:
+        df_full = mp.load_and_validate_features(csv_path)
+        df_full.index = df_full.index.tz_localize(None)
+    
     all_errors = []
     all_actuals = []
     all_p10 = []
     all_p90 = []
     
+    # Get minimum input chunk length (NHiTS needs 168 hours)
+    input_chunk = 168  # Fixed value, could be from config if needed
+    
     # Walk forward through validation set
     for i in range(n_steps):
-        start_idx = i * 24  # Each step = 24 hours
-        if start_idx + 24 > len(val_target):
+        # Each step predicts the next 24 hours
+        # Start with enough history for the model (at least input_chunk hours)
+        hist_end = input_chunk + i * 24  # Growing history window
+        pred_start = hist_end
+        pred_end = pred_start + 24
+        
+        # Check if we have enough data
+        if pred_end > len(val_target):
             break
         
-        # Historical data up to prediction point
-        hist_target = val_target[:start_idx] if start_idx > 0 else val_target[:24]
+        # Historical data: from start up to hist_end
+        hist_target = val_target[:hist_end]
         
         # Predict next 24 hours
         try:
             if is_tft:
                 # TFT needs separate past and future covariates
-                hist_past = val_past[:start_idx] if start_idx > 0 else val_past[:24]
-                fut_cov = val_future[start_idx:start_idx+24] if val_future else None
+                hist_past = val_past[:hist_end] if val_past else None
+                
+                # TFT needs future covariates from START of history to END of prediction window
+                # NOT just the prediction window itself!
+                if val_future is not None:
+                    try:
+                        # Slice from beginning to end of prediction (not just pred_start:pred_end)
+                        fut_cov = val_future[:pred_end]
+                        # Verify we have enough future covariates
+                        if len(fut_cov) < pred_end:
+                            print(f"  Warning: Not enough future covariates at step {i}: needed {pred_end}, got {len(fut_cov)}")
+                            fut_cov = None
+                    except Exception as slice_err:
+                        print(f"  Warning: Failed to slice future_covariates at step {i}: {slice_err}")
+                        fut_cov = None
+                else:
+                    fut_cov = None
                 
                 preds = model.predict(
                     n=24,
@@ -113,12 +150,19 @@ def evaluate_model_walk_forward(
                     future_covariates=fut_cov,
                     num_samples=100
                 )
+            elif model_type == "nhits":
+                # NHiTS: Stack past and future covariates THEN slice to history
+                hist_cov = val_past[:hist_end].stack(val_future[:hist_end]) if val_future else val_past[:hist_end]
+                
+                preds = model.predict(
+                    n=24,
+                    series=hist_target,
+                    past_covariates=hist_cov,
+                    num_samples=100
+                )
             else:
-                # NHiTS: stack past and future covariates
-                hist_cov = val_past[:start_idx] if start_idx > 0 else val_past[:24]
-                if val_future:
-                    fut_slice = val_future[:start_idx+24] if start_idx > 0 else val_future[:48]
-                    hist_cov = hist_cov.stack(fut_slice)
+                # TimesNet or other: use pre-stacked covariates directly
+                hist_cov = val_past[:hist_end]
                 
                 preds = model.predict(
                     n=24,
@@ -130,27 +174,54 @@ def evaluate_model_walk_forward(
             # Inverse transform predictions
             preds_original = state.target_scaler.inverse_transform(preds)
             
-            # Extract quantiles
+            # Extract quantiles DIRECTLY from TimeSeries (before calling .values())
+            # This ensures quantiles are computed across samples correctly
             p10 = preds_original.quantile(0.1).values().flatten()
             p50 = preds_original.quantile(0.5).values().flatten()
             p90 = preds_original.quantile(0.9).values().flatten()
             
-            # Get actual values
-            actuals_scaled = val_target[start_idx:start_idx+24]
-            actuals = state.target_scaler.inverse_transform(actuals_scaled).values().flatten()
+            # Validate quantile results
+            if np.isnan(p50).any() or np.isinf(p50).any():
+                print(f"  Warning: Quantiles contain NaN/Inf at step {i}")
+                continue
+            
+            # Get actual values for the prediction window
+            # Use raw dataframe if available (like benchmarker), otherwise inverse transform scaled data
+            if df_full is not None:
+                # Get prediction start time from validation target
+                pred_time_start = val_target.time_index[pred_start]
+                pred_time_end = val_target.time_index[pred_end - 1]
+                actuals = df_full[state.feature_config.target_col][pred_time_start:pred_time_end].values
+            else:
+                # Fallback: inverse transform scaled validation data
+                actuals_scaled = val_target[pred_start:pred_end]
+                actuals = state.target_scaler.inverse_transform(actuals_scaled).values().flatten()
+            
+            # Check for NaN/Inf in actuals
+            if np.isnan(actuals).any() or np.isinf(actuals).any():
+                print(f"  Warning: Actuals contain NaN/Inf at step {i}")
+                continue
+            
+            # Compute errors
+            errors = np.abs(actuals - p50)
+            
+            # Check for NaN/Inf in errors
+            if np.isnan(errors).any() or np.isinf(errors).any():
+                print(f"  Warning: Errors contain NaN/Inf at step {i}")
+                continue
             
             # Store results
-            errors = np.abs(actuals - p50)
             all_errors.extend(errors)
             all_actuals.extend(actuals)
             all_p10.extend(p10)
             all_p90.extend(p90)
             
         except Exception as e:
-            print(f"  Warning: Prediction failed at step {i}: {e}")
+            print(f"  Warning: Prediction failed at step {i}: {type(e).__name__}: {e}")
             continue
     
     if len(all_errors) == 0:
+        print(f"  ERROR: No valid predictions generated! Returning inf MAE.")
         return float('inf'), 0.0
     
     mae = float(np.mean(all_errors))
@@ -159,6 +230,11 @@ def evaluate_model_walk_forward(
         np.array(all_p10),
         np.array(all_p90)
     )
+    
+    # Final validation of results
+    if np.isnan(mae) or np.isinf(mae):
+        print(f"  ERROR: Final MAE is NaN/Inf: {mae}")
+        return float('inf'), 0.0
     
     return mae, picp
 
@@ -220,77 +296,104 @@ def train_nhits(params: Dict[str, Any], csv_path: str, dataset: str) -> Tuple[fl
         val_past_covariates=vp
     )
     
-    # Evaluate
-    mae, picp = evaluate_model_walk_forward(model, v_sc, state, n_steps=10, is_tft=False)
+    # Prepare validation data for evaluation with stacked covariates
+    v_sc_eval = {
+        "target": v_sc["target"],
+        "past_covariates": v_sc["past_covariates"],
+        "future_covariates": v_sc["future_covariates"]
+    }
+    
+    # Evaluate (use override if set)
+    n_eval_steps = N_STEPS_OVERRIDE if N_STEPS_OVERRIDE is not None else 10
+    mae, picp = evaluate_model_walk_forward(model, v_sc_eval, state, n_steps=n_eval_steps, is_tft=False, model_type="nhits", csv_path=csv_path)
     
     print(f"  Results: MAE={mae:.4f}, PICP={picp:.2f}%")
     return mae, picp
 
 
 def train_tft(params: Dict[str, Any], csv_path: str, dataset: str) -> Tuple[float, float]:
-    """Train and evaluate TFT model."""
+    """Train and evaluate TFT model (optimized for speed)."""
     print(f"\n  Training TFT with params: {params}")
     
-    # Auto-detect feature config based on dataset name
-    cfg = mp.water_feature_config() if 'water' in dataset.lower() else mp.default_feature_config()
-    
-    # Get dataset-specific split config
-    split_cfg = SPLIT_CONFIG[dataset]
-    
-    # Prepare data
-    state, t_sc, v_sc, _ = mp.prepare_model_data(
-        csv_path,
-        to_naive(split_cfg["train_end"]),
-        to_naive(split_cfg["val_end"]),
-        cfg
-    )
-    
-    # Model configuration
-    model_config = {
-        **HPO_TRAINING_CONFIG,
-        "random_state": 42,
-        "force_reset": True,
-        "likelihood": QuantileRegression(quantiles=[0.1, 0.5, 0.9]),
-        "hidden_size": params["hidden_size"],
-        "lstm_layers": params["lstm_layers"],
-        "num_attention_heads": params["num_attention_heads"],
-        "dropout": params["dropout"],
-        "optimizer_kwargs": {"lr": params["lr"]},
-        "pl_trainer_kwargs": {
-            "logger": False,
-            "enable_checkpointing": False,
+    try:
+        # Auto-detect feature config based on dataset name
+        cfg = mp.water_feature_config() if 'water' in dataset.lower() else mp.default_feature_config()
+        
+        # Get dataset-specific split config
+        split_cfg = SPLIT_CONFIG[dataset]
+        
+        # Prepare data
+        state, t_sc, v_sc, _ = mp.prepare_model_data(
+            csv_path,
+            to_naive(split_cfg["train_end"]),
+            to_naive(split_cfg["val_end"]),
+            cfg
+        )
+        
+        print(f"  Data shapes - Train target: {t_sc['target'].shape}, Val target: {v_sc['target'].shape}")
+        
+        # Model configuration - Use TFT-specific faster config (use override if set)
+        n_epochs = N_EPOCHS_OVERRIDE if N_EPOCHS_OVERRIDE is not None else HPO_TRAINING_CONFIG_TFT["n_epochs"]
+        
+        model_config = {
+            **HPO_TRAINING_CONFIG_TFT,  # Use faster config for TFT
+            "n_epochs": n_epochs,  # Apply override
+            "random_state": 42,
+            "force_reset": True,
+            "likelihood": QuantileRegression(quantiles=[0.1, 0.5, 0.9]),
+            "hidden_size": params["hidden_size"],
+            "lstm_layers": params["lstm_layers"],
+            "num_attention_heads": params["num_attention_heads"],
+            "dropout": params["dropout"],
+            "optimizer_kwargs": {"lr": params["lr"]},
+            "pl_trainer_kwargs": {
+                "logger": False,
+                "enable_checkpointing": False,
+            }
         }
-    }
-    
-    # TFT uses separate past and future covariates
-    tp = t_sc["past_covariates"]
-    tf = t_sc["future_covariates"]
-    vp = v_sc["past_covariates"]
-    vf = v_sc["future_covariates"]
-    
-    # Train model
-    model = TFTModel(**model_config)
-    model.fit(
-        t_sc["target"],
-        past_covariates=tp,
-        future_covariates=tf,
-        val_series=v_sc["target"],
-        val_past_covariates=vp,
-        val_future_covariates=vf
-    )
-    
-    # Prepare validation data for evaluation
-    v_sc_eval = {
-        "target": v_sc["target"],
-        "past_covariates": vp,
-        "future_covariates": vf
-    }
-    
-    # Evaluate
-    mae, picp = evaluate_model_walk_forward(model, v_sc_eval, state, n_steps=10, is_tft=True)
-    
-    print(f"  Results: MAE={mae:.4f}, PICP={picp:.2f}%")
-    return mae, picp
+        
+        # TFT uses separate past and future covariates
+        tp = t_sc["past_covariates"]
+        tf = t_sc["future_covariates"]
+        vp = v_sc["past_covariates"]
+        vf = v_sc["future_covariates"]
+        
+        print(f"  Covariate shapes - tp: {tp.shape if tp else None}, tf: {tf.shape if tf else None}")
+        print(f"                      vp: {vp.shape if vp else None}, vf: {vf.shape if vf else None}")
+        
+        # Train model
+        print(f"  Training TFT model...")
+        model = TFTModel(**model_config)
+        model.fit(
+            t_sc["target"],
+            past_covariates=tp,
+            future_covariates=tf,
+            val_series=v_sc["target"],
+            val_past_covariates=vp,
+            val_future_covariates=vf
+        )
+        print(f"  TFT training completed successfully")
+        
+        # Prepare validation data for evaluation
+        v_sc_eval = {
+            "target": v_sc["target"],
+            "past_covariates": vp,
+            "future_covariates": vf
+        }
+        
+        # Evaluate with fewer steps for speed (use override if set)
+        n_eval_steps = N_STEPS_OVERRIDE if N_STEPS_OVERRIDE is not None else 5
+        print(f"  Evaluating TFT model on validation set...")
+        mae, picp = evaluate_model_walk_forward(model, v_sc_eval, state, n_steps=n_eval_steps, is_tft=True, model_type="tft", csv_path=csv_path)
+        
+        print(f"  Results: MAE={mae:.6f}, PICP={picp:.2f}%")
+        return mae, picp
+        
+    except Exception as e:
+        print(f"  ERROR in train_tft: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
+        return float('inf'), 0.0
 
 
 def train_timesnet(params: Dict[str, Any], csv_path: str, dataset: str) -> Tuple[float, float]:
@@ -455,6 +558,11 @@ def run_optimization(model_name: str, dataset: str, n_trials: int, job_id: str =
     if job_id is None:
         job_id = os.environ.get('SLURM_JOB_ID', 'local')
     
+    # For TFT, reduce trials and use faster settings (TFT is much slower)
+    if model_name == "TFT_Q" and n_trials > 20:
+        print(f"\n⚠️  TFT is slow - reducing trials from {n_trials} to 20 for faster completion")
+        n_trials = 20
+    
     # Setup result directory
     result_dir = f"hpo/results/{model_name}_{dataset}"
     os.makedirs(result_dir, exist_ok=True)
@@ -474,13 +582,19 @@ def run_optimization(model_name: str, dataset: str, n_trials: int, job_id: str =
     print(f"Results Dir: {result_dir}")
     print(f"{'='*70}\n")
     
-    # Create multi-objective study
+    # Create multi-objective study with model-specific pruner
+    if model_name == "TFT_Q":
+        # More aggressive pruning for TFT to fail fast on bad hyperparams
+        pruner = optuna.pruners.MedianPruner(n_startup_trials=2, n_warmup_steps=1)
+    else:
+        pruner = optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=3)
+    
     study = optuna.create_study(
         study_name=study_name,
         storage=storage_path,
         load_if_exists=True,
         directions=["minimize", "minimize"],  # Minimize MAE and PICP penalty
-        pruner=optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=3)
+        pruner=pruner
     )
     
     # Run optimization
@@ -582,8 +696,23 @@ def main():
                         help="Number of optimization trials (default: 50)")
     parser.add_argument("--job-id", type=str, default=None,
                         help="Job ID for result naming (auto-detected from SLURM if not provided)")
+    parser.add_argument("--n-epochs", type=int, default=None,
+                        help="Override number of training epochs (for testing)")
+    parser.add_argument("--n-steps", type=int, default=None,
+                        help="Override number of walk-forward validation steps (for testing)")
     
     args = parser.parse_args()
+    
+    # Set global overrides if provided (for testing)
+    if args.n_epochs is not None:
+        global N_EPOCHS_OVERRIDE
+        N_EPOCHS_OVERRIDE = args.n_epochs
+        print(f"⚠️  TESTING MODE: Using {args.n_epochs} epochs instead of default")
+    
+    if args.n_steps is not None:
+        global N_STEPS_OVERRIDE
+        N_STEPS_OVERRIDE = args.n_steps
+        print(f"⚠️  TESTING MODE: Using {args.n_steps} validation steps instead of default")
     
     # Run optimization
     result_file = run_optimization(

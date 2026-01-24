@@ -1,0 +1,81 @@
+{
+  "model": "NHITS_Q",
+  "dataset": "water_centrum",
+  "job_id": "1514041",
+  "optimization_date": "2026-01-20T09:04:34.032485",
+  "n_trials": 50,
+  "n_completed": 50,
+  "n_pareto_optimal": 4,
+  "best_trial_number": 36,
+  "best_mae": 0.002682043231431606,
+  "best_picp_approx": 75.83333333333333,
+  "best_params": {
+    "num_stacks": 3,
+    "num_blocks": 2,
+    "num_layers": 3,
+    "layer_widths": 512,
+    "lr": 0.0007824351036106601,
+    "dropout": 0.20568535453696662,
+    "weight_decay": 3.4681559835910615e-06
+  },
+  "study_name": "NHITS_Q_water_centrum_1514041",
+  "storage_path": "sqlite:///hpo/results/NHITS_Q_water_centrum/study_NHITS_Q_water_centrum_1514041.db",
+  "all_pareto_trials": [
+    {
+      "trial": 19,
+      "mae": 0.0028249424947462388,
+      "picp_penalty": 0.0,
+      "params": {
+        "num_stacks": 5,
+        "num_blocks": 1,
+        "num_layers": 2,
+        "layer_widths": 256,
+        "lr": 1.9881748016602504e-05,
+        "dropout": 0.19463982690069626,
+        "weight_decay": 0.0003527526812015707
+      }
+    },
+    {
+      "trial": 30,
+      "mae": 0.002789573930188754,
+      "picp_penalty": 2.916666666666657,
+      "params": {
+        "num_stacks": 2,
+        "num_blocks": 3,
+        "num_layers": 4,
+        "layer_widths": 256,
+        "lr": 4.363873816969184e-05,
+        "dropout": 0.30295814413380406,
+        "weight_decay": 5.862641471346983e-06
+      }
+    },
+    {
+      "trial": 36,
+      "mae": 0.002682043231431606,
+      "picp_penalty": 4.166666666666671,
+      "params": {
+        "num_stacks": 3,
+        "num_blocks": 2,
+        "num_layers": 3,
+        "layer_widths": 512,
+        "lr": 0.0007824351036106601,
+        "dropout": 0.20568535453696662,
+        "weight_decay": 3.4681559835910615e-06
+      }
+    },
+    {
+      "trial": 47,
+      "mae": 0.002799733134096805,
+      "picp_penalty": 1.25,
+      "params": {
+        "num_stacks": 3,
+        "num_blocks": 3,
+        "num_layers": 2,
+        "layer_widths": 256,
+        "lr": 3.424297268741528e-05,
+        "dropout": 0.3006944864131144,
+        "weight_decay": 0.00012271414452367577
+      }
+    }
+  ]
+}

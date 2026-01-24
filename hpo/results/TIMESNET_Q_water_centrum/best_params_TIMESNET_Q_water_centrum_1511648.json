@@ -1,0 +1,59 @@
+{
+  "model": "TIMESNET_Q",
+  "dataset": "water_centrum",
+  "job_id": "1511648",
+  "optimization_date": "2026-01-17T19:43:27.251788",
+  "n_trials": 50,
+  "n_completed": 50,
+  "n_pareto_optimal": 3,
+  "best_trial_number": 31,
+  "best_mae": 0.003546797941533944,
+  "best_picp_approx": 64.16666666666667,
+  "best_params": {
+    "hidden_size": 128,
+    "conv_hidden_size": 64,
+    "top_k": 5,
+    "lr": 1.2784040074602352e-05,
+    "dropout": 0.14758337813197792
+  },
+  "study_name": "TIMESNET_Q_water_centrum_1511648",
+  "storage_path": "sqlite:///hpo/results/TIMESNET_Q_water_centrum/study_TIMESNET_Q_water_centrum_1511648.db",
+  "all_pareto_trials": [
+    {
+      "trial": 31,
+      "mae": 0.003546797941533944,
+      "picp_penalty": 15.833333333333329,
+      "params": {
+        "hidden_size": 128,
+        "conv_hidden_size": 64,
+        "top_k": 5,
+        "lr": 1.2784040074602352e-05,
+        "dropout": 0.14758337813197792
+      }
+    },
+    {
+      "trial": 36,
+      "mae": 0.003596921532725057,
+      "picp_penalty": 10.0,
+      "params": {
+        "hidden_size": 64,
+        "conv_hidden_size": 64,
+        "top_k": 4,
+        "lr": 1.038331243174021e-05,
+        "dropout": 0.23837860486969942
+      }
+    },
+    {
+      "trial": 47,
+      "mae": 0.0035623246481159415,
+      "picp_penalty": 15.0,
+      "params": {
+        "hidden_size": 128,
+        "conv_hidden_size": 64,
+        "top_k": 4,
+        "lr": 2.0748211042811507e-05,
+        "dropout": 0.2636995793872169
+      }
+    }
+  ]
+}

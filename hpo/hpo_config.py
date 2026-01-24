@@ -17,13 +17,13 @@ def get_nhits_search_space(trial):
 
 
 def get_tft_search_space(trial):
-    """TFT hyperparameter search space."""
+    """TFT hyperparameter search space (simplified for speed)."""
     return {
-        "hidden_size": trial.suggest_categorical("hidden_size", [32, 64, 128, 256]),
-        "lstm_layers": trial.suggest_int("lstm_layers", 1, 3),
-        "num_attention_heads": trial.suggest_categorical("num_attention_heads", [2, 4, 8]),
-        "dropout": trial.suggest_float("dropout", 0.05, 0.4),
-        "lr": trial.suggest_float("lr", 1e-5, 1e-2, log=True),
+        "hidden_size": trial.suggest_categorical("hidden_size", [64, 128]),  # Reduced from [32, 64, 128, 256]
+        "lstm_layers": trial.suggest_int("lstm_layers", 1, 2),  # Reduced from 1-3
+        "num_attention_heads": trial.suggest_categorical("num_attention_heads", [2, 4]),  # Reduced from [2, 4, 8]
+        "dropout": trial.suggest_float("dropout", 0.1, 0.3),  # Narrower range for stability
+        "lr": trial.suggest_float("lr", 1e-4, 1e-3, log=True),  # Narrower range for stability
     }
 
 
@@ -71,6 +71,14 @@ SPLIT_CONFIG = {
 HPO_TRAINING_CONFIG = {
     "n_epochs": 15,  # Reduced for HPO speed (vs 100 for final training)
     "batch_size": 32,
+    "input_chunk_length": 168,
+    "output_chunk_length": 24,
+}
+
+# TFT-specific faster config (TFT is much slower than NHiTS)
+HPO_TRAINING_CONFIG_TFT = {
+    "n_epochs": 8,  # Much fewer epochs for TFT (vs 15 for NHiTS)
+    "batch_size": 64,  # Larger batches = faster training
     "input_chunk_length": 168,
     "output_chunk_length": 24,
 }

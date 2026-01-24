@@ -27,6 +27,14 @@ models/*.pt.ckpt
 **/*.err
 **/*.log
 
+# for the .csv files in data folde
+/*.csv
+
+# # for the .csv anywhere
+# **/*.csv  
+#allow school holidays csv
+!school_holidays.csv
+
 #allow benchmark_runner
 !hpo_runner.ipynb
 !benchmark_comparator.ipynb
@@ -44,8 +52,5 @@ models/*.pt.ckpt
 !water_centrum_benchmark/results/final-stored-results/with-cqr/**/*.json
 !water_tommerby_benchmark/results/final-stored-results/with-cqr/**/*.html
 !water_tommerby_benchmark/results/final-stored-results/with_cqr/**/*.json
-# for the .csv files in data folde
-/*.csv
-
-# # for the .csv anywhere
-# **/*.csv  
+!hpo/results/**/*.json
+!hpo/results/**/*.html

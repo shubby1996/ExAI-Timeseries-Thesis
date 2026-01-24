@@ -1,0 +1,59 @@
+{
+  "model": "TFT_Q",
+  "dataset": "water_tommerby",
+  "job_id": "1516075",
+  "optimization_date": "2026-01-24T01:18:56.710884",
+  "n_trials": 20,
+  "n_completed": 20,
+  "n_pareto_optimal": 3,
+  "best_trial_number": 1,
+  "best_mae": 0.002745339726541822,
+  "best_picp_approx": 74.16666666666667,
+  "best_params": {
+    "hidden_size": 128,
+    "lstm_layers": 1,
+    "num_attention_heads": 2,
+    "dropout": 0.21523328959234217,
+    "lr": 0.0007154873031047929
+  },
+  "study_name": "TFT_Q_water_tommerby_1516075",
+  "storage_path": "sqlite:///hpo/results/TFT_Q_water_tommerby/study_TFT_Q_water_tommerby_1516075.db",
+  "all_pareto_trials": [
+    {
+      "trial": 1,
+      "mae": 0.002745339726541822,
+      "picp_penalty": 5.833333333333329,
+      "params": {
+        "hidden_size": 128,
+        "lstm_layers": 1,
+        "num_attention_heads": 2,
+        "dropout": 0.21523328959234217,
+        "lr": 0.0007154873031047929
+      }
+    },
+    {
+      "trial": 7,
+      "mae": 0.003674839162221828,
+      "picp_penalty": 1.6666666666666714,
+      "params": {
+        "hidden_size": 128,
+        "lstm_layers": 1,
+        "num_attention_heads": 4,
+        "dropout": 0.12607884212516024,
+        "lr": 0.0004478388033897956
+      }
+    },
+    {
+      "trial": 11,
+      "mae": 0.0058811828152401805,
+      "picp_penalty": 0.0,
+      "params": {
+        "hidden_size": 128,
+        "lstm_layers": 2,
+        "num_attention_heads": 4,
+        "dropout": 0.27169701261881546,
+        "lr": 0.00012691753768785257
+      }
+    }
+  ]
+}
