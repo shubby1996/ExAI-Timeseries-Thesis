@@ -40,6 +40,7 @@ models/*.pt.ckpt
 !benchmark_comparator.ipynb
 !heat_benchmark_runner.ipynb
 !water_benchmark_runner.ipynb
+!nordbyen_heat_benchmark/notebooks/thesis_viz_heteroscedasticity_analysis.ipynb
 !nordbyen_heat_benchmark/results/final-stored-results/without-cqr/**/*.html
 !nordbyen_heat_benchmark/results/final-stored-results/without-cqr/**/*.json
 !water_centrum_benchmark/results/final-stored-results/without-cqr/**/*.html
@@ -54,3 +55,4 @@ models/*.pt.ckpt
 !water_tommerby_benchmark/results/final-stored-results/with_cqr/**/*.json
 !hpo/results/**/*.json
 !hpo/results/**/*.html
+
