@@ -149,10 +149,11 @@ def to_naive(ts_str: str):
     return pd.Timestamp(ts_str).tz_localize(None)
 
 class ModelAdapter(ABC):
-    def __init__(self, name: str, config: Dict[str, Any]):
+    def __init__(self, name: str, config: Dict[str, Any], models_folder: str = "models"):
         self.name, self.config = name, config
         self.model, self.state = None, None
         self.cqr_s_hat = None  # Calibration correction factor
+        self.models_folder = models_folder  # Dataset-specific models directory
 
     @abstractmethod
     def train(self, csv_path: str, train_end_str: str, val_end_str: str): pass
@@ -225,14 +226,14 @@ class DartsAdapter(ModelAdapter):
         self.model = NHiTSModel(**cp)
         self.model.fit(t_sc["target"], past_covariates=tp, val_series=v_sc["target"], val_past_covariates=vp)
         
-        os.makedirs("models", exist_ok=True)
-        self.model.save(os.path.join("models", f"{self.name}.pt"))
-        with open(os.path.join("models", f"{self.name}_preprocessing_state.pkl"), "wb") as f: pickle.dump(self.state, f)
+        os.makedirs(self.models_folder, exist_ok=True)
+        self.model.save(os.path.join(self.models_folder, f"{self.name}.pt"))
+        with open(os.path.join(self.models_folder, f"{self.name}_preprocessing_state.pkl"), "wb") as f: pickle.dump(self.state, f)
 
     def evaluate(self, csv_path: str, test_start_str: str, n_predictions: int = 50) -> Tuple[Dict[str, float], pd.DataFrame]:
         print(f"[{self.name}] Evaluating (Walk-forward)...")
         if not self.state:
-            with open(os.path.join("models", f"{self.name}_preprocessing_state.pkl"), "rb") as f: self.state = pickle.load(f)
+            with open(os.path.join(self.models_folder, f"{self.name}_preprocessing_state.pkl"), "rb") as f: self.state = pickle.load(f)
         df_full = mp.load_and_validate_features(csv_path)
         df_full.index = df_full.index.tz_localize(None)
         sc_dict = mp.apply_state_to_full_df(df_full, self.state)
@@ -312,7 +313,7 @@ class DartsAdapter(ModelAdapter):
         """Get predictions on calibration period for CQR calibration."""
         print(f"[{self.name}] Getting calibration predictions...")
         if not self.state:
-            with open(os.path.join("models", f"{self.name}_preprocessing_state.pkl"), "rb") as f: 
+            with open(os.path.join(self.models_folder, f"{self.name}_preprocessing_state.pkl"), "rb") as f: 
                 self.state = pickle.load(f)
         
         df_full = mp.load_and_validate_features(csv_path)
@@ -422,14 +423,14 @@ class TFTAdapter(ModelAdapter):
             val_future_covariates=vf
         )
         
-        os.makedirs("models", exist_ok=True)
-        self.model.save(os.path.join("models", f"{self.name}.pt"))
-        with open(os.path.join("models", f"{self.name}_preprocessing_state.pkl"), "wb") as f: pickle.dump(self.state, f)
+        os.makedirs(self.models_folder, exist_ok=True)
+        self.model.save(os.path.join(self.models_folder, f"{self.name}.pt"))
+        with open(os.path.join(self.models_folder, f"{self.name}_preprocessing_state.pkl"), "wb") as f: pickle.dump(self.state, f)
 
     def evaluate(self, csv_path: str, test_start_str: str, n_predictions: int = 50) -> Tuple[Dict[str, float], pd.DataFrame]:
         print(f"[{self.name}] Evaluating (Walk-forward)...")
         if not self.state:
-            with open(os.path.join("models", f"{self.name}_preprocessing_state.pkl"), "rb") as f: self.state = pickle.load(f)
+            with open(os.path.join(self.models_folder, f"{self.name}_preprocessing_state.pkl"), "rb") as f: self.state = pickle.load(f)
         df_full = mp.load_and_validate_features(csv_path)
         df_full.index = df_full.index.tz_localize(None)
         sc_dict = mp.apply_state_to_full_df(df_full, self.state)
@@ -521,7 +522,7 @@ class TFTAdapter(ModelAdapter):
         """Get predictions on calibration period for CQR calibration."""
         print(f"[{self.name}] Getting calibration predictions...")
         if not self.state:
-            with open(os.path.join("models", f"{self.name}_preprocessing_state.pkl"), "rb") as f: 
+            with open(os.path.join(self.models_folder, f"{self.name}_preprocessing_state.pkl"), "rb") as f: 
                 self.state = pickle.load(f)
         
         df_full = mp.load_and_validate_features(csv_path)
@@ -640,7 +641,7 @@ class NeuralForecastAdapter(ModelAdapter):
         nf = NeuralForecast(models=[model], freq='h')
         nf.fit(df=train_df)
         self.model = nf
-        nf.save(path=os.path.join("models", self.name), overwrite=True)
+        nf.save(path=os.path.join(self.models_folder, self.name), overwrite=True)
 
     def evaluate(self, csv_path: str, test_start_str: str, n_predictions: int = 50) -> Tuple[Dict[str, float], pd.DataFrame]:
         print(f"[{self.name}] Evaluating (Walk-forward)...")
@@ -797,12 +798,16 @@ class Benchmarker:
         lower_path = csv_path.lower()
         if 'nordbyen' in lower_path or 'heat' in self.dataset.lower():
             self.dataset_results_folder = 'nordbyen_heat_benchmark/results'
+            self.dataset_models_folder = 'models/nordbyen_heat'
         elif 'tommerby' in lower_path or 'tommerby' in self.dataset.lower():
             self.dataset_results_folder = 'water_tommerby_benchmark/results'
+            self.dataset_models_folder = 'models/water_tommerby'
         elif 'centrum' in lower_path or ('water' in self.dataset.lower() and 'centrum' in self.dataset.lower()):
             self.dataset_results_folder = 'water_centrum_benchmark/results'
+            self.dataset_models_folder = 'models/water_centrum'
         else:
             self.dataset_results_folder = 'results/unknown_dataset'
+            self.dataset_models_folder = 'models/unknown_dataset'
         
         # Get job ID from environment (SLURM) or use 'local' for local runs
         self.job_id = os.environ.get('SLURM_JOB_ID', 'local')
@@ -940,11 +945,11 @@ class Benchmarker:
             cfg = self.configs[mk]
             # Select appropriate adapter based on model type
             if cfg["type"].upper() == "TIMESNET":
-                adapter = NeuralForecastAdapter(mk, cfg)
+                adapter = NeuralForecastAdapter(mk, cfg, models_folder=self.dataset_models_folder)
             elif cfg["type"].upper() == "TFT":
-                adapter = TFTAdapter(mk, cfg)
+                adapter = TFTAdapter(mk, cfg, models_folder=self.dataset_models_folder)
             else:  # NHITS and other Darts models
-                adapter = DartsAdapter(mk, cfg)
+                adapter = DartsAdapter(mk, cfg, models_folder=self.dataset_models_folder)
             
             # Train with dataset-specific splits
             print(f"\n[{mk}] Training with splits: train_end={splits['train_end'][:10]}, val_end={splits['val_end'][:10]}")

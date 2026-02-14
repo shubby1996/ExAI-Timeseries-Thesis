@@ -20,6 +20,7 @@ models/*.pt
 models/*.pth
 models/*.ckpt
 models/*.pt.ckpt
+NAMLSS
 
 **/*.ipynb
 **/*.html
