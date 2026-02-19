@@ -20,7 +20,6 @@ models/*.pt
 models/*.pth
 models/*.ckpt
 models/*.pt.ckpt
-NAMLSS
 
 **/*.ipynb
 **/*.html
@@ -41,6 +40,9 @@ NAMLSS
 !benchmark_comparator.ipynb
 !heat_benchmark_runner.ipynb
 !water_benchmark_runner.ipynb
+!NAMLSS/namlss_benchmark.ipynb
+!NAMLSS/namlss_water_centrum_benchmark.ipynb
+!NAMLSS/namlss_water_tommerby_benchmark.ipynb
 !nordbyen_heat_benchmark/notebooks/thesis_viz_heteroscedasticity_analysis.ipynb
 !nordbyen_heat_benchmark/results/final-stored-results/without-cqr/**/*.html
 !nordbyen_heat_benchmark/results/final-stored-results/without-cqr/**/*.json
