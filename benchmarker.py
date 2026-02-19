@@ -24,6 +24,22 @@ from neuralforecast.losses.pytorch import MQLoss, MSE
 import model_preprocessing as mp
 import conformal_calibration as cqr
 
+# NAMLSS imports
+sys.path.append(os.path.join(os.path.dirname(__file__), 'NAMLSS'))
+try:
+    import torch
+    import torch.nn.functional as F
+    from torch.utils.data import DataLoader
+    from train_tsnamlss import TSNAMLSSNormal, normal_nll
+    from step1_3_data_pipeline import (
+        TSConfig, load_and_prepare, chronological_split_indices,
+        fit_scalers_on_train, apply_scalers, WindowDataset
+    )
+    NAMLSS_AVAILABLE = True
+except ImportError as e:
+    NAMLSS_AVAILABLE = False
+    print(f"Warning: NAMLSS imports failed: {e}")
+
 def calculate_mape(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     mask = y_true != 0
     if not np.any(mask): return 0.0
@@ -94,6 +110,31 @@ def calculate_picp(y_true: np.ndarray, y_low: np.ndarray, y_high: np.ndarray) ->
 def calculate_miw(y_low: np.ndarray, y_high: np.ndarray) -> float:
     if len(y_low) == 0: return 0.0
     return np.mean(y_high - y_low)
+
+def calculate_crps_normal(y_true: np.ndarray, mu: np.ndarray, sigma: np.ndarray) -> float:
+    """Analytical CRPS for Normal distribution - exact, no sampling.
+    
+    CRPS for Normal(μ, σ) has closed form:
+    CRPS = σ * [z * (2*Φ(z) - 1) + 2*φ(z) - 1/√π]
+    where z = (y - μ)/σ, Φ is CDF, φ is PDF
+    """
+    if len(y_true) == 0:
+        return np.nan
+    
+    from scipy.special import erf
+    
+    # Prevent division by zero
+    sigma = np.maximum(sigma, 1e-8)
+    z = (y_true - mu) / sigma
+    
+    # Standard normal PDF and CDF
+    pdf = (1.0 / np.sqrt(2 * np.pi)) * np.exp(-0.5 * z**2)
+    cdf = 0.5 * (1.0 + erf(z / np.sqrt(2)))
+    
+    # CRPS formula
+    crps = sigma * (z * (2 * cdf - 1) + 2 * pdf - 1.0 / np.sqrt(np.pi))
+    
+    return float(np.mean(crps))
 
 def calculate_pinball_loss(y_true: np.ndarray, y_pred_quantiles: Dict[float, np.ndarray]) -> float:
     """Calculate average pinball loss across multiple quantiles.
@@ -776,6 +817,485 @@ class NeuralForecastAdapter(ModelAdapter):
         
         return pd.DataFrame(all_rows)
 
+class NAMLSSAdapter(ModelAdapter):
+    """Adapter for TSNAMLSS (Time Series Neural Additive Model for Location, Scale, and Shape)."""
+    
+    def __init__(self, name: str, config: Dict[str, Any], models_folder: str = "models"):
+        super().__init__(name, config, models_folder)
+        if not NAMLSS_AVAILABLE:
+            raise ImportError("NAMLSS dependencies not available. Check imports.")
+        self.cfg_obj = None  # TSConfig object
+        self.scalers = None  # Dict of scalers
+        
+    def _get_tsconfig(self, csv_path: str) -> TSConfig:
+        """Create TSConfig with auto-detected dataset type."""
+        lower_path = csv_path.lower()
+        
+        # Common settings
+        L = self.config.get("L", 168)
+        H = self.config.get("H", 24)
+        
+        if 'water' in lower_path or 'centrum' in lower_path or 'tommerby' in lower_path:
+            # Water dataset
+            return TSConfig(
+                L=L, H=H,
+                target="water_consumption",
+                endo_cols=["water_lag_1h", "water_lag_24h", "water_rolling_24h"],
+                exo_cols=["temp", "wind_speed", "dew_point", "temp_squared", "temp_wind_interaction",
+                         "humidity", "clouds_all", "pressure", "rain_1h", "snow_1h", "temp_weekend_interaction"],
+                future_cov_cols=["hour_sin", "hour_cos", "is_weekend", "is_public_holiday",
+                               "day_of_week", "season", "hour", "month", "is_school_holiday"]
+            )
+        else:
+            # Heat dataset (default)
+            return TSConfig(
+                L=L, H=H,
+                target="heat_consumption",
+                endo_cols=["heat_lag_1h", "heat_lag_24h", "heat_rolling_24h"],
+                exo_cols=["temp", "wind_speed", "dew_point", "temp_squared", "temp_wind_interaction",
+                         "humidity", "clouds_all", "pressure", "rain_1h", "snow_1h", "temp_weekend_interaction"],
+                future_cov_cols=["hour_sin", "hour_cos", "is_weekend", "is_public_holiday",
+                               "day_of_week", "season", "hour", "month", "is_school_holiday"]
+            )
+    
+    def train(self, csv_path: str, train_end_str: str, val_end_str: str):
+        print(f"\n[{self.name}] Training...")
+        
+        # Setup config
+        self.cfg_obj = self._get_tsconfig(csv_path)
+        
+        # Load and prepare data
+        df = load_and_prepare(csv_path, self.cfg_obj)
+        
+        # Convert date strings to timestamps for splitting
+        # Match timezone of DataFrame index if present
+        train_end = pd.Timestamp(train_end_str)
+        val_end = pd.Timestamp(val_end_str)
+        
+        # If DataFrame index is timezone-aware, ensure comparison timestamps match
+        if df.index.tz is not None:
+            if train_end.tz is None:
+                train_end = train_end.tz_localize(df.index.tz)
+            else:
+                train_end = train_end.tz_convert(df.index.tz)
+            if val_end.tz is None:
+                val_end = val_end.tz_localize(df.index.tz)
+            else:
+                val_end = val_end.tz_convert(df.index.tz)
+        
+        # Split by dates
+        train_mask = df.index <= train_end
+        val_mask = (df.index > train_end) & (df.index <= val_end)
+        
+        train_df = df[train_mask].copy()
+        val_df = df[val_mask].copy()
+        
+        print(f"  Train samples={len(train_df)} | Val samples={len(val_df)}")
+        
+        # Fit scalers on train only
+        train_range = (0, len(train_df) - 1)
+        self.scalers = fit_scalers_on_train(train_df, self.cfg_obj, train_range)
+        
+        # Apply scaling
+        train_scaled = apply_scalers(train_df, self.cfg_obj, self.scalers)
+        val_scaled = apply_scalers(val_df, self.cfg_obj, self.scalers)
+        
+        # Create datasets
+        train_split_range = (0, len(train_scaled) - 1)
+        val_split_range = (0, len(val_scaled) - 1)
+        train_dataset = WindowDataset(train_scaled, self.cfg_obj, train_split_range)
+        val_dataset = WindowDataset(val_scaled, self.cfg_obj, val_split_range)
+        
+        batch_size = self.config.get("batch_size", 128)
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+        
+        # Initialize model
+        device = torch.device(self.config.get("device", "cpu"))
+        
+        model_params = {
+            "L": self.cfg_obj.L,
+            "H": self.cfg_obj.H,
+            "target": self.cfg_obj.target,
+            "endo_cols": self.cfg_obj.endo_cols,
+            "exo_cols": self.cfg_obj.exo_cols,
+            "future_cov_cols": self.cfg_obj.future_cov_cols,
+            "hidden_window": self.config.get("hidden_window", 64),
+            "hidden_future_cov": self.config.get("hidden_future_cov", 32),
+            "dropout": self.config.get("dropout", 0.1)
+        }
+        
+        # Override with HPO params if available
+        if "best_params" in self.config and self.config["best_params"] is not None:
+            best = self.config["best_params"]
+            print(f"  Using optimized hyperparameters from HPO")
+            model_params.update({
+                "hidden_window": best.get("hidden_window", model_params["hidden_window"]),
+                "hidden_future_cov": best.get("hidden_future_cov", model_params["hidden_future_cov"]),
+                "dropout": best.get("dropout", model_params["dropout"])
+            })
+        else:
+            print(f"  Using default hyperparameters (no HPO results found)")
+        
+        self.model = TSNAMLSSNormal(**model_params).to(device)
+        
+        # Training setup
+        lr = self.config.get("lr", 1e-3)
+        if "best_params" in self.config and self.config["best_params"] is not None:
+            lr = self.config["best_params"].get("lr", lr)
+        
+        optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
+        n_epochs = self.config.get("n_epochs", 30)
+        patience = self.config.get("patience", 5)
+        
+        print(f"  Device={device} | Batch size={batch_size} | LR={lr} | Dropout={model_params['dropout']}")
+        
+        # Training loop with early stopping
+        best_val_nll = float('inf')
+        patience_counter = 0
+        
+        for epoch in range(n_epochs):
+            # Train
+            self.model.train()
+            train_nlls = []
+            for batch in train_loader:
+                optimizer.zero_grad()
+                
+                target_hist = batch["target_hist"].to(device)
+                # Extract endogenous features (keys ending with '_hist' except target_hist)
+                endo_hists = {}
+                for endo_col in self.cfg_obj.endo_cols:
+                    endo_hists[endo_col] = batch[f"{endo_col}_hist"].to(device)
+                # Extract exogenous features (direct keys)
+                exo_hists = {}
+                for exo_col in self.cfg_obj.exo_cols:
+                    exo_hists[exo_col] = batch[exo_col].to(device)
+                future_cov = batch["future_cov"].to(device)
+                target_future = batch["target_future"].to(device)
+                
+                out = self.model(target_hist, endo_hists, exo_hists, future_cov)
+                nll = normal_nll(out["mu"], out["sigma"], target_future).mean()
+                
+                nll.backward()
+                optimizer.step()
+                train_nlls.append(nll.item())
+            
+            # Validate
+            self.model.eval()
+            val_nlls = []
+            with torch.no_grad():
+                for batch in val_loader:
+                    target_hist = batch["target_hist"].to(device)
+                    # Extract endogenous features
+                    endo_hists = {}
+                    for endo_col in self.cfg_obj.endo_cols:
+                        endo_hists[endo_col] = batch[f"{endo_col}_hist"].to(device)
+                    # Extract exogenous features
+                    exo_hists = {}
+                    for exo_col in self.cfg_obj.exo_cols:
+                        exo_hists[exo_col] = batch[exo_col].to(device)
+                    future_cov = batch["future_cov"].to(device)
+                    target_future = batch["target_future"].to(device)
+                    
+                    out = self.model(target_hist, endo_hists, exo_hists, future_cov)
+                    nll = normal_nll(out["mu"], out["sigma"], target_future).mean()
+                    val_nlls.append(nll.item())
+            
+            avg_train_nll = np.mean(train_nlls)
+            avg_val_nll = np.mean(val_nlls)
+            
+            print(f"  Epoch {epoch+1:02d}: train_nll={avg_train_nll:.6f} | val_nll={avg_val_nll:.6f}")
+            
+            # Early stopping
+            if avg_val_nll < best_val_nll:
+                best_val_nll = avg_val_nll
+                patience_counter = 0
+                # Save best model (benchmarker format)
+                os.makedirs(self.models_folder, exist_ok=True)
+                torch.save(self.model.state_dict(), os.path.join(self.models_folder, f"{self.name}.pt"))
+                print(f"    Saved best model -> {self.models_folder}/{self.name}.pt")
+            else:
+                patience_counter += 1
+                if patience_counter >= patience:
+                    print(f"  Early stopping (patience={patience}). Best val_nll={best_val_nll:.6f}")
+                    break
+        
+        # Save preprocessing state (benchmarker format)
+        preprocessing_state = {
+            "cfg_obj": self.cfg_obj,
+            "scalers": self.scalers
+        }
+        with open(os.path.join(self.models_folder, f"{self.name}_preprocessing_state.pkl"), "wb") as f:
+            pickle.dump(preprocessing_state, f)
+    
+    def evaluate(self, csv_path: str, test_start_str: str, n_predictions: int = 50) -> Tuple[Dict[str, float], pd.DataFrame]:
+        print(f"[{self.name}] Evaluating (Walk-forward)...")
+        
+        # Load model and preprocessing state if needed
+        if self.model is None or self.cfg_obj is None:
+            with open(os.path.join(self.models_folder, f"{self.name}_preprocessing_state.pkl"), "rb") as f:
+                state = pickle.load(f)
+            self.cfg_obj = state["cfg_obj"]
+            self.scalers = state["scalers"]
+            
+            # Reconstruct model
+            device = torch.device(self.config.get("device", "cpu"))
+            self.model = TSNAMLSSNormal(
+                L=self.cfg_obj.L,
+                H=self.cfg_obj.H,
+                target=self.cfg_obj.target,
+                endo_cols=self.cfg_obj.endo_cols,
+                exo_cols=self.cfg_obj.exo_cols,
+                future_cov_cols=self.cfg_obj.future_cov_cols,
+                hidden_window=self.config.get("hidden_window", 64),
+                hidden_future_cov=self.config.get("hidden_future_cov", 32),
+                dropout=self.config.get("dropout", 0.1)
+            ).to(device)
+            self.model.load_state_dict(torch.load(os.path.join(self.models_folder, f"{self.name}.pt"), map_location=device))
+        
+        self.model.eval()
+        device = next(self.model.parameters()).device
+        
+        # Load full dataset
+        df = load_and_prepare(csv_path, self.cfg_obj)
+        df_scaled = apply_scalers(df, self.cfg_obj, self.scalers)
+        
+        test_start = pd.Timestamp(test_start_str)
+        # Match timezone of DataFrame index if present
+        if df.index.tz is not None:
+            if test_start.tz is None:
+                test_start = test_start.tz_localize(df.index.tz)
+            else:
+                test_start = test_start.tz_convert(df.index.tz)
+        
+        # Get target scaler for inverse transform
+        target_scaler = self.scalers[self.cfg_obj.target]
+        target_mean = target_scaler.mean_[0]  # StandardScaler stores mean as array
+        target_std = target_scaler.scale_[0]  # StandardScaler stores scale as array
+        
+        # Calculate MASE scale
+        mase_scale = mase_denominator(df.loc[df.index < test_start, self.cfg_obj.target].values, m=24)
+        
+        all_rows = []
+        all_mu = []  # For CRPS
+        all_sigma = []  # For CRPS
+        all_actuals = []
+        
+        # Walk-forward evaluation
+        for i in range(n_predictions):
+            pred_start = test_start + pd.Timedelta(days=i)
+            pred_end = pred_start + pd.Timedelta(hours=23)
+            
+            # History window (L hours before prediction start)
+            hist_start = pred_start - pd.Timedelta(hours=self.cfg_obj.L)
+            
+            # Check if we have enough history
+            if hist_start < df.index.min():
+                continue
+            
+            # Get actual values for this day
+            actual_slice = df.loc[pred_start:pred_end, self.cfg_obj.target]
+            if len(actual_slice) < 24:
+                break
+            
+            # Extract history windows (scaled)
+            hist_data = df_scaled.loc[hist_start:pred_start - pd.Timedelta(hours=1)]
+            if len(hist_data) < self.cfg_obj.L:
+                continue
+            
+            # Extract future covariates (scaled)
+            future_data = df_scaled.loc[pred_start:pred_end]
+            if len(future_data) < self.cfg_obj.H:
+                break
+            
+            # Prepare tensors
+            target_hist = torch.tensor(hist_data[self.cfg_obj.target].values[-self.cfg_obj.L:], dtype=torch.float32).unsqueeze(0).to(device)
+            
+            endo_hists = {}
+            for endo_col in self.cfg_obj.endo_cols:
+                endo_hists[endo_col] = torch.tensor(hist_data[endo_col].values[-self.cfg_obj.L:], dtype=torch.float32).unsqueeze(0).to(device)
+            
+            exo_hists = {}
+            for exo_col in self.cfg_obj.exo_cols:
+                exo_hists[exo_col] = torch.tensor(hist_data[exo_col].values[-self.cfg_obj.L:], dtype=torch.float32).unsqueeze(0).to(device)
+            
+            future_cov_list = []
+            for cov_col in self.cfg_obj.future_cov_cols:
+                future_cov_list.append(future_data[cov_col].values[:self.cfg_obj.H])
+            future_cov = torch.tensor(np.stack(future_cov_list, axis=1), dtype=torch.float32).unsqueeze(0).to(device)
+            
+            # Predict
+            with torch.no_grad():
+                out = self.model(target_hist, endo_hists, exo_hists, future_cov)
+                mu_scaled = out["mu"].cpu().numpy()[0]  # (H,)
+                sigma_scaled = out["sigma"].cpu().numpy()[0]  # (H,)
+            
+            # Inverse transform to original scale
+            mu = mu_scaled * target_std + target_mean
+            sigma = sigma_scaled * target_std  # Scale but don't shift
+            
+            # Generate quantiles from Normal(mu, sigma)
+            # z-score for 10th and 90th percentiles: ±1.282
+            p10 = mu - 1.282 * sigma
+            p50 = mu
+            p90 = mu + 1.282 * sigma
+            
+            actuals = actual_slice.values
+            times = actual_slice.index
+            
+            all_mu.extend(mu)
+            all_sigma.extend(sigma)
+            all_actuals.extend(actuals)
+            
+            for t, a, l, m, h in zip(times, actuals, p10, p50, p90):
+                all_rows.append({"timestamp": t, "actual": a, "p10": l, "p50": m, "p90": h})
+        
+        pdf = pd.DataFrame(all_rows)
+        
+        if len(pdf) == 0:
+            raise RuntimeError(f"No predictions generated for {self.name}")
+        
+        # Apply CQR calibration if available
+        if self.cqr_s_hat is not None:
+            print(f"[{self.name}] Applying CQR calibration (s_hat={self.cqr_s_hat:.4f})...")
+            pdf['p10'], pdf['p90'] = cqr.apply_cqr_correction(
+                pdf['p10'].values, pdf['p90'].values, self.cqr_s_hat
+            )
+        
+        # Calculate metrics
+        metrics = {
+            "MAE": mean_absolute_error(pdf["actual"], pdf["p50"]),
+            "RMSE": np.sqrt(mean_squared_error(pdf["actual"], pdf["p50"])),
+            "MAPE": calculate_mape(pdf["actual"].values, pdf["p50"].values),
+            "MAPE_EPS": calculate_mape_eps(pdf["actual"].values, pdf["p50"].values),
+            "sMAPE": calculate_smape(pdf["actual"].values, pdf["p50"].values),
+            "WAPE": calculate_wape(pdf["actual"].values, pdf["p50"].values),
+            "MASE": calculate_mase(pdf["actual"].values, pdf["p50"].values, mase_scale),
+            "Pinball": calculate_pinball_loss(
+                pdf["actual"].values,
+                {0.1: pdf["p10"].values, 0.5: pdf["p50"].values, 0.9: pdf["p90"].values}
+            ),
+            "PICP": calculate_picp(pdf["actual"].values, pdf["p10"].values, pdf["p90"].values),
+            "MIW": calculate_miw(pdf["p10"].values, pdf["p90"].values),
+            "Winkler": calculate_winkler_score(pdf["actual"].values, pdf["p10"].values, pdf["p90"].values),
+            "CRPS": calculate_crps_normal(np.array(all_actuals), np.array(all_mu), np.array(all_sigma))
+        }
+        
+        return metrics, pdf
+    
+    def get_calibration_predictions(
+        self, csv_path: str, cal_start_str: str, cal_end_str: str
+    ) -> pd.DataFrame:
+        """Get predictions on calibration period for CQR calibration."""
+        print(f"[{self.name}] Getting calibration predictions...")
+        
+        # Load model and preprocessing state if needed
+        if self.model is None or self.cfg_obj is None:
+            with open(os.path.join(self.models_folder, f"{self.name}_preprocessing_state.pkl"), "rb") as f:
+                state = pickle.load(f)
+            self.cfg_obj = state["cfg_obj"]
+            self.scalers = state["scalers"]
+            
+            device = torch.device(self.config.get("device", "cpu"))
+            self.model = TSNAMLSSNormal(
+                L=self.cfg_obj.L,
+                H=self.cfg_obj.H,
+                target=self.cfg_obj.target,
+                endo_cols=self.cfg_obj.endo_cols,
+                exo_cols=self.cfg_obj.exo_cols,
+                future_cov_cols=self.cfg_obj.future_cov_cols,
+                hidden_window=self.config.get("hidden_window", 64),
+                hidden_future_cov=self.config.get("hidden_future_cov", 32),
+                dropout=self.config.get("dropout", 0.1)
+            ).to(device)
+            self.model.load_state_dict(torch.load(os.path.join(self.models_folder, f"{self.name}.pt"), map_location=device))
+        
+        self.model.eval()
+        device = next(self.model.parameters()).device
+        
+        # Load full dataset
+        df = load_and_prepare(csv_path, self.cfg_obj)
+        df_scaled = apply_scalers(df, self.cfg_obj, self.scalers)
+        
+        cal_start = pd.Timestamp(cal_start_str)
+        cal_end = pd.Timestamp(cal_end_str)
+        # Match timezone of DataFrame index if present
+        if df.index.tz is not None:
+            if cal_start.tz is None:
+                cal_start = cal_start.tz_localize(df.index.tz)
+            else:
+                cal_start = cal_start.tz_convert(df.index.tz)
+            if cal_end.tz is None:
+                cal_end = cal_end.tz_localize(df.index.tz)
+            else:
+                cal_end = cal_end.tz_convert(df.index.tz)
+        
+        target_scaler = self.scalers[self.cfg_obj.target]
+        target_mean = target_scaler.mean_[0]  # StandardScaler stores mean as array
+        target_std = target_scaler.scale_[0]  # StandardScaler stores scale as array
+        
+        all_rows = []
+        n_days = (cal_end - cal_start).days
+        
+        for i in range(n_days):
+            pred_start = cal_start + pd.Timedelta(days=i)
+            pred_end = pred_start + pd.Timedelta(hours=23)
+            hist_start = pred_start - pd.Timedelta(hours=self.cfg_obj.L)
+            
+            if hist_start < df.index.min():
+                continue
+            
+            actual_slice = df.loc[pred_start:pred_end, self.cfg_obj.target]
+            if len(actual_slice) < 24:
+                break
+            
+            hist_data = df_scaled.loc[hist_start:pred_start - pd.Timedelta(hours=1)]
+            if len(hist_data) < self.cfg_obj.L:
+                continue
+            
+            future_data = df_scaled.loc[pred_start:pred_end]
+            if len(future_data) < self.cfg_obj.H:
+                break
+            
+            # Prepare tensors
+            target_hist = torch.tensor(hist_data[self.cfg_obj.target].values[-self.cfg_obj.L:], dtype=torch.float32).unsqueeze(0).to(device)
+            
+            endo_hists = {}
+            for endo_col in self.cfg_obj.endo_cols:
+                endo_hists[endo_col] = torch.tensor(hist_data[endo_col].values[-self.cfg_obj.L:], dtype=torch.float32).unsqueeze(0).to(device)
+            
+            exo_hists = {}
+            for exo_col in self.cfg_obj.exo_cols:
+                exo_hists[exo_col] = torch.tensor(hist_data[exo_col].values[-self.cfg_obj.L:], dtype=torch.float32).unsqueeze(0).to(device)
+            
+            future_cov_list = []
+            for cov_col in self.cfg_obj.future_cov_cols:
+                future_cov_list.append(future_data[cov_col].values[:self.cfg_obj.H])
+            future_cov = torch.tensor(np.stack(future_cov_list, axis=1), dtype=torch.float32).unsqueeze(0).to(device)
+            
+            # Predict
+            with torch.no_grad():
+                out = self.model(target_hist, endo_hists, exo_hists, future_cov)
+                mu_scaled = out["mu"].cpu().numpy()[0]
+                sigma_scaled = out["sigma"].cpu().numpy()[0]
+            
+            # Inverse transform
+            mu = mu_scaled * target_std + target_mean
+            sigma = sigma_scaled * target_std
+            
+            # Generate quantiles
+            p10 = mu - 1.282 * sigma
+            p50 = mu
+            p90 = mu + 1.282 * sigma
+            
+            actuals = actual_slice.values
+            times = actual_slice.index
+            
+            for t, a, l, m, h in zip(times, actuals, p10, p50, p90):
+                all_rows.append({"timestamp": t, "actual": a, "p10": l, "p50": m, "p90": h})
+        
+        return pd.DataFrame(all_rows)
+
 class Benchmarker:
     def __init__(self, csv_path: str, models_to_run: List[str], dataset: str = None):
         self.csv_path, self.results = csv_path, []
@@ -816,6 +1336,7 @@ class Benchmarker:
         nhits_best = self._load_json("results/best_params_NHITS.json")
         timesnet_best = self._load_json("results/best_params_TIMESNET.json")
         tft_best = self._load_json("results/best_params_TFT.json")
+        namlss_best = self._load_json("results/best_params_NAMLSS.json")
         
         self.configs = {
             "NHITS_Q": {"type": "NHITS", "quantile": True, "n_epochs": 100, "best_params": nhits_best},
@@ -824,6 +1345,10 @@ class Benchmarker:
             "TIMESNET_MSE": {"type": "TIMESNET", "quantile": False, "n_epochs": 150, "best_params": None},
             "TFT_Q": {"type": "TFT", "quantile": True, "n_epochs": 100, "best_params": tft_best},
             "TFT_MSE": {"type": "TFT", "quantile": False, "n_epochs": 100, "best_params": None},
+            "NAMLSS": {"type": "NAMLSS", "quantile": True, "n_epochs": 30, "L": 168, "H": 24, 
+                      "batch_size": 128, "lr": 1e-3, "dropout": 0.1, "patience": 5,
+                      "hidden_window": 64, "hidden_future_cov": 32, "device": "cpu", 
+                      "best_params": namlss_best},
             # Backward-compatible aliases
             "NHITS": {"type": "NHITS", "quantile": True, "n_epochs": 100, "best_params": nhits_best},
             "TIMESNET": {"type": "TIMESNET", "quantile": True, "n_epochs": 150, "best_params": timesnet_best},
@@ -944,7 +1469,9 @@ class Benchmarker:
             if mk not in self.configs: continue
             cfg = self.configs[mk]
             # Select appropriate adapter based on model type
-            if cfg["type"].upper() == "TIMESNET":
+            if cfg["type"].upper() == "NAMLSS":
+                adapter = NAMLSSAdapter(mk, cfg, models_folder=self.dataset_models_folder)
+            elif cfg["type"].upper() == "TIMESNET":
                 adapter = NeuralForecastAdapter(mk, cfg, models_folder=self.dataset_models_folder)
             elif cfg["type"].upper() == "TFT":
                 adapter = TFTAdapter(mk, cfg, models_folder=self.dataset_models_folder)

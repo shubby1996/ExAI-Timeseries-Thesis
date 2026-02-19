@@ -334,7 +334,7 @@ def main():
     print(f"Visualizing results from: {results_dir}")
     
     sns.set_theme(style="whitegrid")
-    models = ["NHITS_Q", "TIMESNET_Q", "TFT_Q", "NHITS_MSE", "TIMESNET_MSE", "TFT_MSE"]
+    models = ["NHITS_Q", "TIMESNET_Q", "TFT_Q", "NAMLSS", "NHITS_MSE", "TIMESNET_MSE", "TFT_MSE"]
     results = {}
     
     for model in models:
