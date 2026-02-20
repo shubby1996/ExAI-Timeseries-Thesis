@@ -1,4 +1,5 @@
 import argparse
+import pickle
 from functools import partial
 from pathlib import Path
 import numpy as np
@@ -909,24 +910,93 @@ def main():
     ap.add_argument("--L", type=int, default=168)
     ap.add_argument("--H", type=int, default=24)
     ap.add_argument("--device", type=str, default="cpu")
-    ap.add_argument("--sample_idx", type=int, default=0, help="Index within TEST dataset")
+    ap.add_argument("--sample_idx", type=int, default=100, help="Index within TEST dataset")
     ap.add_argument("--out_dir", type=str, default="interp_out")
+    ap.add_argument("--preprocessing_state", type=str, default=None,
+                    help="Path to NAMLSS_preprocessing_state.pkl saved by the benchmarker. "
+                         "When provided, scalers and TSConfig are loaded from this file to ensure "
+                         "interpret uses the exact same preprocessing as benchmarking/eval.")
+    ap.add_argument("--test_start_str", type=str, default=None,
+                    help="(Optional) start date for test split, e.g. '2023-01-01'.")
+    ap.add_argument("--test_end_str", type=str, default=None,
+                    help="(Optional) end date for test split, e.g. '2023-06-30'.")
     ap.add_argument("--do_effects", action="store_true", help="Compute dataset-level effect/importance over the full test set")
     ap.add_argument("--effects_batch_size", type=int, default=512)
     ap.add_argument("--effects_max_batches", type=int, default=-1, help="Limit batches for quick runs; -1 uses all")
     ap.add_argument("--plot_full_dataset", action="store_true", help="Generate full dataset forecast plot (train + val + test)")
 
     args = ap.parse_args()
+    device = torch.device(args.device)
 
-    cfg = TSConfig(L=args.L, H=args.H)
+    # Load checkpoint and detect format (train_tsnamlss vs benchmarker raw state_dict)
+    raw_ckpt = torch.load(args.ckpt, map_location=device)
+    if isinstance(raw_ckpt, dict) and "model_state" in raw_ckpt:
+        ckpt = raw_ckpt
+        print("✓ Detected train_tsnamlss.py checkpoint format")
+    else:
+        ckpt = {"model_state": raw_ckpt, "cfg": None}
+        print("✓ Detected benchmarker checkpoint format (raw state dict)")
 
-    # Prepare data (same as training)
+    # ------------------------------------------------------------------
+    # Load preprocessing state (scalers + TSConfig) if provided, otherwise
+    # fall back to deriving/fit scalers locally (may differ from benchmarker)
+    # ------------------------------------------------------------------
+    scalers = None
+    if args.preprocessing_state is not None:
+        print(f"✓ Loading preprocessing state from: {args.preprocessing_state}")
+        with open(args.preprocessing_state, "rb") as f:
+            preprocessing_state = pickle.load(f)
+        cfg = preprocessing_state["cfg_obj"]
+        scalers = preprocessing_state["scalers"]
+        print(f"  target:           {cfg.target}")
+        print(f"  endo_cols:        {cfg.endo_cols}")
+        print(f"  exo_cols:         {cfg.exo_cols}")
+        print(f"  future_cov_cols:  {cfg.future_cov_cols}")
+    else:
+        # Start from args
+        cfg = TSConfig(L=args.L, H=args.H)
+        # If checkpoint contains cfg, prefer its values
+        if ckpt.get("cfg") is not None:
+            saved_cfg = ckpt["cfg"]
+            if "target" in saved_cfg:          cfg.target = saved_cfg["target"]
+            if "endo_cols" in saved_cfg:       cfg.endo_cols = saved_cfg["endo_cols"]
+            if "exo_cols" in saved_cfg:        cfg.exo_cols = saved_cfg["exo_cols"]
+            if "future_cov_cols" in saved_cfg: cfg.future_cov_cols = saved_cfg["future_cov_cols"]
+
+    # If no .pkl was provided and cfg has no exo_cols, try to detect from state_dict
+    state_dict = ckpt["model_state"]
+    has_exo_nets = any("exo_nets" in key for key in state_dict.keys())
+    if args.preprocessing_state is None and not cfg.exo_cols:
+        exo_cols = []
+        for key in state_dict.keys():
+            if key.startswith("exo_nets."):
+                col = key.split(".")[1]
+                if col not in exo_cols:
+                    exo_cols.append(col)
+        cfg.exo_cols = exo_cols
+
+    if not has_exo_nets:
+        raise ValueError("Legacy architecture no longer supported. Please use the configurable architecture.")
+
+    print(f"\n✓ Model config:")
+    print(f"  target:           {cfg.target}")
+    print(f"  endo_cols:        {cfg.endo_cols}")
+    print(f"  exo_cols:         {cfg.exo_cols}")
+    print(f"  future_cov_cols:  {cfg.future_cov_cols}")
+
+    # Prepare data (now that cfg is known)
     df_raw = load_and_prepare(Path(args.csv_path), cfg)
     n = len(df_raw)
     train_rng, val_rng, test_rng = chronological_split_indices(n, cfg.train_frac, cfg.val_frac)
 
-    scalers = fit_scalers_on_train(df_raw, cfg, train_rng)
-    df = apply_scalers(df_raw, cfg, scalers)
+    # Scalers: reuse from .pkl if available, otherwise refit on train
+    if scalers is not None:
+        print("✓ Reusing benchmarker scalers (no refitting)")
+        df = apply_scalers(df_raw, cfg, scalers)
+    else:
+        scalers = fit_scalers_on_train(df_raw, cfg, train_rng)
+        df = apply_scalers(df_raw, cfg, scalers)
+        print("✓ Fitted fresh scalers (no --preprocessing_state provided)")
 
     ds_test = WindowDataset(df, cfg, test_rng)
     if len(ds_test) == 0:
@@ -937,48 +1007,6 @@ def main():
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-
-    device = torch.device(args.device)
-
-    # Load checkpoint to detect model architecture FIRST
-    ckpt = torch.load(args.ckpt, map_location=device)
-    
-    # Determine if checkpoint has multi-exo architecture by checking state_dict keys
-    has_exo_nets = any("exo_nets" in key for key in ckpt["model_state"].keys())
-    
-    # Restore cfg from checkpoint if available
-    if "cfg" in ckpt:
-        saved_cfg = ckpt["cfg"]
-        if "target" in saved_cfg:
-            cfg.target = saved_cfg["target"]
-        if "endo_cols" in saved_cfg:
-            cfg.endo_cols = saved_cfg["endo_cols"]
-        if "exo_cols" in saved_cfg:
-            cfg.exo_cols = saved_cfg["exo_cols"]
-        if "future_cov_cols" in saved_cfg:
-            cfg.future_cov_cols = saved_cfg["future_cov_cols"]
-    
-    # Update config with correct exo_cols based on checkpoint state_dict
-    if has_exo_nets:
-        # New architecture: detect any remaining exo_cols from checkpoint if not in cfg
-        exo_cols = []
-        for key in ckpt["model_state"].keys():
-            if key.startswith("exo_nets."):
-                exo_col = key.split(".")[1]
-                if exo_col not in exo_cols:
-                    exo_cols.append(exo_col)
-        if exo_cols and not cfg.exo_cols:
-            cfg.exo_cols = exo_cols
-        
-        print(f"✓ Detected configurable model:")
-        print(f"  target: {cfg.target}")
-        print(f"  endo_cols: {cfg.endo_cols}")
-        print(f"  exo_cols: {cfg.exo_cols}")
-        print(f"  future_cov_cols: {cfg.future_cov_cols}")
-    else:
-        # OLD architecture not supported
-        raise ValueError("Legacy model architecture no longer supported. Please use new configurable architecture.")
-
     # #==============================================================================================
     #     # --- DEBUG: print original-unit values at influential lags ---
     # t_center = ds_test.centers[sample_idx]          # index of "end of history" in df
@@ -1015,7 +1043,7 @@ def main():
     if args.plot_full_dataset:
         plot_full_dataset_forecasts(model, df_raw, scalers, cfg, train_rng, val_rng, test_rng, device, out_dir)
         print("\n✓ Full dataset plots generated successfully!")
-        return  # Exit after generating full dataset plots
+        # continue to optionally compute effects and per-sample decompositions
 
     if args.do_effects:
         # Create collate function with target, endo and exo columns
