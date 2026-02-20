@@ -1,0 +1,122 @@
+{
+  "mu_effects_norm_y": {
+    "target": 0.19495871663093567,
+    "endo": 0.36144310235977173,
+    "exo": 0.08633501827716827,
+    "future_cov": 0.4284239113330841
+  },
+  "mu_importances_norm_y": {
+    "target": 0.1820069647674924,
+    "endo": 0.3374312425393216,
+    "exo": 0.08059949768503953,
+    "future_cov": 0.3999622950081465
+  },
+  "mu_effects_per_cov_norm_y": {
+    "endo_water_lag_1h": 0.20002123713493347,
+    "endo_water_lag_24h": 0.161844864487648,
+    "endo_water_rolling_24h": 0.10660666227340698,
+    "exo_temp": 0.06150609627366066,
+    "exo_wind_speed": 0.05520462617278099,
+    "exo_dew_point": 0.07091084867715836,
+    "exo_temp_squared": 0.06384346634149551,
+    "exo_temp_wind_interaction": 0.05644499137997627,
+    "future_hour_sin": 0.20364636182785034,
+    "future_hour_cos": 0.37000465393066406,
+    "future_is_weekend": 0.07260674238204956,
+    "future_is_public_holiday": 0.006623654626309872
+  },
+  "mu_importances_per_cov_norm_y": {
+    "endo_water_lag_1h": 0.1399469995569151,
+    "endo_water_lag_24h": 0.11323649180043051,
+    "endo_water_rolling_24h": 0.07458849236031972,
+    "exo_temp": 0.04303339860932327,
+    "exo_wind_speed": 0.038624507603310675,
+    "exo_dew_point": 0.04961353429540198,
+    "exo_temp_squared": 0.04466876459612079,
+    "exo_temp_wind_interaction": 0.03949234239719644,
+    "future_hour_sin": 0.14248335685107164,
+    "future_hour_cos": 0.25887771659346304,
+    "future_is_weekend": 0.05080008447860518,
+    "future_is_public_holiday": 0.0046343108578416736
+  },
+  "rawsig_effects_norm_y": {
+    "target": 0.15524522960186005,
+    "endo": 0.2607510983943939,
+    "exo": 0.12266433984041214,
+    "future_cov": 0.1814178228378296
+  },
+  "rawsig_importances_norm_y": {
+    "target": 0.2155948714097018,
+    "endo": 0.36211482744075446,
+    "exo": 0.17034856814777619,
+    "future_cov": 0.2519417330017676
+  },
+  "rawsig_effects_per_cov_norm_y": {
+    "endo_water_lag_1h": 0.14645910263061523,
+    "endo_water_lag_24h": 0.13513796031475067,
+    "endo_water_rolling_24h": 0.10113191604614258,
+    "exo_temp": 0.07228381186723709,
+    "exo_wind_speed": 0.06447874009609222,
+    "exo_dew_point": 0.053901467472314835,
+    "exo_temp_squared": 0.05316361412405968,
+    "exo_temp_wind_interaction": 0.05136189982295036,
+    "future_hour_sin": 0.05603567138314247,
+    "future_hour_cos": 0.13987156748771667,
+    "future_is_weekend": 0.14071591198444366,
+    "future_is_public_holiday": 0.004679060075432062
+  },
+  "rawsig_importances_per_cov_norm_y": {
+    "endo_water_lag_1h": 0.1436971396693259,
+    "endo_water_lag_24h": 0.13258949433107675,
+    "endo_water_rolling_24h": 0.09922474468358038,
+    "exo_temp": 0.07092066538134308,
+    "exo_wind_speed": 0.0632627836363209,
+    "exo_dew_point": 0.052884979906546045,
+    "exo_temp_squared": 0.0521610411841635,
+    "exo_temp_wind_interaction": 0.05039330406902016,
+    "future_hour_sin": 0.054978936457887866,
+    "future_hour_cos": 0.1372338339375331,
+    "future_is_weekend": 0.13806225557125845,
+    "future_is_public_holiday": 0.004590821171943864
+  },
+  "rawsig_effects_norm_rawsig": {
+    "target": 0.310711145401001,
+    "endo": 0.521872878074646,
+    "exo": 0.24550305306911469,
+    "future_cov": 0.3630935549736023
+  },
+  "rawsig_importances_norm_rawsig": {
+    "target": 0.2155948661852675,
+    "endo": 0.36211482909316084,
+    "exo": 0.17034856540533963,
+    "future_cov": 0.25194173931623204
+  },
+  "rawsig_effects_per_cov_norm_rawsig": {
+    "endo_water_lag_1h": 0.2931264042854309,
+    "endo_water_lag_24h": 0.2704680263996124,
+    "endo_water_rolling_24h": 0.2024075984954834,
+    "exo_temp": 0.14467036724090576,
+    "exo_wind_speed": 0.1290491372346878,
+    "exo_dew_point": 0.10787955671548843,
+    "exo_temp_squared": 0.10640279948711395,
+    "exo_temp_wind_interaction": 0.10279681533575058,
+    "future_hour_sin": 0.11215100437402725,
+    "future_hour_cos": 0.27994197607040405,
+    "future_is_weekend": 0.28163185715675354,
+    "future_is_public_holiday": 0.009364771656692028
+  },
+  "rawsig_importances_per_cov_norm_rawsig": {
+    "endo_water_lag_1h": 0.14369714009065562,
+    "endo_water_lag_24h": 0.13258949487792682,
+    "endo_water_rolling_24h": 0.09922474608632269,
+    "exo_temp": 0.07092065990800366,
+    "exo_wind_speed": 0.06326278247432812,
+    "exo_dew_point": 0.052884979134013334,
+    "exo_temp_squared": 0.05216103960750455,
+    "exo_temp_wind_interaction": 0.05039330527109663,
+    "future_hour_sin": 0.0549789386122638,
+    "future_hour_cos": 0.13723383756815383,
+    "future_is_weekend": 0.13806225519158039,
+    "future_is_public_holiday": 0.004590821178150547
+  }
+}

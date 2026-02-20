@@ -1,5 +1,6 @@
 import argparse
 import math
+import pickle
 from functools import partial
 from pathlib import Path
 import numpy as np
@@ -358,9 +359,24 @@ def normalize_importances_by_horizon(effects_h: dict) -> dict:
 
 
 def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--csv_path", type=str, required=True)
-    ap.add_argument("--ckpt", type=str, default="best_tsnamlss.pt")
+    ap = argparse.ArgumentParser(description="Standalone explainability evaluation for NAMLSS after benchmarking.")
+    ap.add_argument("--csv_path", type=str, required=True,
+                    help="Path to the raw feature-engineered CSV (same file used during training).")
+    ap.add_argument("--ckpt", type=str, default="best_tsnamlss.pt",
+                    help="Path to the model checkpoint (.pt). Accepts both train_tsnamlss.py format "
+                         "(dict with 'model_state' key) and benchmarker format (raw state dict).")
+    ap.add_argument("--preprocessing_state", type=str, default=None,
+                    help="Path to NAMLSS_preprocessing_state.pkl saved by the benchmarker. "
+                         "When provided, scalers and TSConfig are loaded from this file instead of "
+                         "being refitted from scratch, ensuring the test evaluation uses the exact "
+                         "same preprocessing as the benchmarker run.")
+    ap.add_argument("--test_start_str", type=str, default=None,
+                    help="Start date of the test window (e.g. '2023-01-01'). When provided together "
+                         "with --test_end_str, a date-based test split is used instead of the default "
+                         "fraction-based chronological split. Use values matching the benchmarker's "
+                         "test_start_str to ensure comparable evaluation.")
+    ap.add_argument("--test_end_str", type=str, default=None,
+                    help="End date of the test window (e.g. '2023-06-30'). See --test_start_str.")
     ap.add_argument("--L", type=int, default=168)
     ap.add_argument("--H", type=int, default=24)
     ap.add_argument("--batch_size", type=int, default=512)
@@ -371,76 +387,137 @@ def main():
 
     device = torch.device(args.device)
 
-    # Load checkpoint to detect model architecture FIRST
-    ckpt = torch.load(args.ckpt, map_location=device)
-    
-    # Detect model architecture from checkpoint state_dict
-    has_exo_nets = any("exo_nets" in key for key in ckpt["model_state"].keys())
-    
-    # Initialize config
-    cfg = TSConfig(L=args.L, H=args.H)
-    
-    # Restore cfg from checkpoint if available
-    if "cfg" in ckpt:
-        saved_cfg = ckpt["cfg"]
-        if "target" in saved_cfg:
-            cfg.target = saved_cfg["target"]
-        if "endo_cols" in saved_cfg:
-            cfg.endo_cols = saved_cfg["endo_cols"]
-        if "exo_cols" in saved_cfg:
-            cfg.exo_cols = saved_cfg["exo_cols"]
-        if "future_cov_cols" in saved_cfg:
-            cfg.future_cov_cols = saved_cfg["future_cov_cols"]
-    
-    if has_exo_nets:
-        # New architecture: detect any remaining exo_cols from checkpoint if not in cfg
-        exo_cols = []
-        for key in ckpt["model_state"].keys():
-            if key.startswith("exo_nets."):
-                exo_col = key.split(".")[1]
-                if exo_col not in exo_cols:
-                    exo_cols.append(exo_col)
-        if exo_cols and not cfg.exo_cols:
-            cfg.exo_cols = exo_cols
-        
-        print(f"✓ Detected configurable model:")
-        print(f"  target: {cfg.target}")
-        print(f"  endo_cols: {cfg.endo_cols}")
-        print(f"  exo_cols: {cfg.exo_cols}")
-        print(f"  future_cov_cols: {cfg.future_cov_cols}")
+    # ------------------------------------------------------------------ #
+    # Change 1: Auto-detect checkpoint format
+    #   - train_tsnamlss.py saves: {"model_state": ..., "cfg": ..., "scalers": ...}
+    #   - NAMLSSAdapter (benchmarker) saves: raw state_dict directly
+    # ------------------------------------------------------------------ #
+    raw_ckpt = torch.load(args.ckpt, map_location=device)
+    if isinstance(raw_ckpt, dict) and "model_state" in raw_ckpt:
+        # train_tsnamlss.py format
+        ckpt = raw_ckpt
+        print("✓ Detected train_tsnamlss.py checkpoint format")
     else:
-        # OLD architecture not supported anymore
-        raise ValueError("Legacy architecture no longer supported. Please use new configurable architecture with target.")
-    
-    # Load and prepare
+        # Benchmarker format: raw state dict — wrap it
+        ckpt = {"model_state": raw_ckpt, "cfg": None}
+        print("✓ Detected benchmarker checkpoint format (raw state dict)")
+
+    # ------------------------------------------------------------------ #
+    # Change 2: Load config and scalers
+    #   Priority: --preprocessing_state .pkl > ckpt["cfg"] > defaults
+    # ------------------------------------------------------------------ #
+    scalers = None
+    if args.preprocessing_state is not None:
+        # Load the benchmarker's preprocessing state (most accurate path)
+        print(f"✓ Loading preprocessing state from: {args.preprocessing_state}")
+        with open(args.preprocessing_state, "rb") as f:
+            preprocessing_state = pickle.load(f)
+        cfg = preprocessing_state["cfg_obj"]
+        scalers = preprocessing_state["scalers"]
+        print(f"  target:           {cfg.target}")
+        print(f"  endo_cols:        {cfg.endo_cols}")
+        print(f"  exo_cols:         {cfg.exo_cols}")
+        print(f"  future_cov_cols:  {cfg.future_cov_cols}")
+    else:
+        # Fall back to reading config from checkpoint or using defaults
+        cfg = TSConfig(L=args.L, H=args.H)
+        if ckpt["cfg"] is not None:
+            saved_cfg = ckpt["cfg"]
+            if "target" in saved_cfg:          cfg.target = saved_cfg["target"]
+            if "endo_cols" in saved_cfg:       cfg.endo_cols = saved_cfg["endo_cols"]
+            if "exo_cols" in saved_cfg:        cfg.exo_cols = saved_cfg["exo_cols"]
+            if "future_cov_cols" in saved_cfg: cfg.future_cov_cols = saved_cfg["future_cov_cols"]
+
+    # Detect model architecture from state_dict keys (sanity check)
+    state_dict = ckpt["model_state"]
+    has_exo_nets = any("exo_nets" in key for key in state_dict.keys())
+    if not has_exo_nets:
+        raise ValueError("Legacy architecture no longer supported. Please use the configurable architecture.")
+
+    # If no .pkl was provided and cfg has no exo_cols, try to detect from state_dict
+    if args.preprocessing_state is None and not cfg.exo_cols:
+        exo_cols = []
+        for key in state_dict.keys():
+            if key.startswith("exo_nets."):
+                col = key.split(".")[1]
+                if col not in exo_cols:
+                    exo_cols.append(col)
+        cfg.exo_cols = exo_cols
+
+    print(f"\n✓ Model config:")
+    print(f"  target:           {cfg.target}")
+    print(f"  endo_cols:        {cfg.endo_cols}")
+    print(f"  exo_cols:         {cfg.exo_cols}")
+    print(f"  future_cov_cols:  {cfg.future_cov_cols}")
+
+    # Load and prepare raw data
     df_raw = load_and_prepare(Path(args.csv_path), cfg)
-    n = len(df_raw)
-    train_rng, val_rng, test_rng = chronological_split_indices(n, cfg.train_frac, cfg.val_frac)
 
-    # Fit scalers on train and apply
-    scalers = fit_scalers_on_train(df_raw, cfg, train_rng)
-    df = apply_scalers(df_raw, cfg, scalers)
+    # Scalers: reuse from .pkl if available, otherwise refit on train
+    if scalers is not None:
+        print("✓ Reusing benchmarker scalers (no refitting)")
+        df = apply_scalers(df_raw, cfg, scalers)
+    else:
+        n = len(df_raw)
+        train_rng, _, _ = chronological_split_indices(n, cfg.train_frac, cfg.val_frac)
+        scalers = fit_scalers_on_train(df_raw, cfg, train_rng)
+        df = apply_scalers(df_raw, cfg, scalers)
+        print("✓ Fitted fresh scalers (no --preprocessing_state provided)")
 
-    # Test dataset with proper collate function
+    # ------------------------------------------------------------------ #
+    # Change 3: Test split — date-based or fraction-based
+    # ------------------------------------------------------------------ #
+    if args.test_start_str is not None and args.test_end_str is not None:
+        import pandas as pd
+        test_start = pd.Timestamp(args.test_start_str)
+        test_end   = pd.Timestamp(args.test_end_str)
+        # Match timezone of DataFrame index if present
+        if df.index.tz is not None:
+            test_start = test_start.tz_localize(df.index.tz) if test_start.tz is None else test_start.tz_convert(df.index.tz)
+            test_end   = test_end.tz_localize(df.index.tz)   if test_end.tz is None   else test_end.tz_convert(df.index.tz)
+        test_mask = (df.index >= test_start) & (df.index <= test_end)
+        test_indices = np.where(test_mask)[0]
+        if len(test_indices) == 0:
+            raise ValueError(f"No rows found between {args.test_start_str} and {args.test_end_str}")
+        test_rng = (int(test_indices[0]), int(test_indices[-1]))
+        print(f"✓ Date-based test split: {args.test_start_str} → {args.test_end_str} "
+              f"({len(test_indices)} rows, indices {test_rng[0]}–{test_rng[1]})")
+    else:
+        n = len(df_raw)
+        _, _, test_rng = chronological_split_indices(n, cfg.train_frac, cfg.val_frac)
+        print(f"✓ Fraction-based test split (indices {test_rng[0]}–{test_rng[1]})")
+
+    # Build test DataLoader
     ds_test = WindowDataset(df, cfg, test_rng)
     collate_fn = partial(collate_tensor_only, target=cfg.target, endo_cols=cfg.endo_cols, exo_cols=cfg.exo_cols)
     test_loader = DataLoader(ds_test, batch_size=args.batch_size, shuffle=False,
                              num_workers=0, drop_last=False, collate_fn=collate_fn)
 
-    # Load model with correct architecture
-    model = TSNAMLSSNormal(L=args.L, H=args.H, target=cfg.target, endo_cols=cfg.endo_cols, 
-                           exo_cols=cfg.exo_cols, future_cov_cols=cfg.future_cov_cols).to(device)
-    model.load_state_dict(ckpt["model_state"])
+    # Build and load model
+    model = TSNAMLSSNormal(
+        L=cfg.L, H=cfg.H,
+        target=cfg.target,
+        endo_cols=cfg.endo_cols,
+        exo_cols=cfg.exo_cols,
+        future_cov_cols=cfg.future_cov_cols,
+    ).to(device)
+    model.load_state_dict(state_dict)
+    print(f"✓ Loaded model weights from: {args.ckpt}")
 
     # y scaling constants (from fitted scaler on target)
     y_mean = float(scalers[cfg.target].mean_[0])
-    y_std = float(np.sqrt(scalers[cfg.target].var_[0]))
+    y_std  = float(scalers[cfg.target].scale_[0])  # StandardScaler uses .scale_, not sqrt(var_)
 
-    metrics = evaluate_test(model, test_loader, device, target=cfg.target, y_mean=y_mean, 
-                           y_std=y_std, alpha=args.alpha, out_dir=args.out_dir, exo_cols=cfg.exo_cols)
+    metrics = evaluate_test(
+        model, test_loader, device,
+        target=cfg.target,
+        y_mean=y_mean, y_std=y_std,
+        alpha=args.alpha,
+        out_dir=args.out_dir,
+        exo_cols=cfg.exo_cols,
+    )
 
-    print("saved eval artifacts to:", os.path.abspath(args.out_dir))
-
+    print("\nsaved eval artifacts to:", os.path.abspath(args.out_dir))
     print("\n=== Test metrics ===")
     for k, v in metrics.items():
         print(f"{k}: {v:.6f}")
