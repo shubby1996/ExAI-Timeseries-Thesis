@@ -841,10 +841,10 @@ class NAMLSSAdapter(ModelAdapter):
                 L=L, H=H,
                 target="water_consumption",
                 endo_cols=["water_lag_1h", "water_lag_24h", "water_rolling_24h"],
-                exo_cols=["temp", "wind_speed", "dew_point", "temp_squared", "temp_wind_interaction",
-                         "humidity", "clouds_all", "pressure", "rain_1h", "snow_1h", "temp_weekend_interaction"],
-                future_cov_cols=["hour_sin", "hour_cos", "is_weekend", "is_public_holiday",
-                               "day_of_week", "season", "hour", "month", "is_school_holiday"]
+                exo_cols=["temp", "wind_speed", "dew_point", "temp_squared", "temp_wind_interaction"],
+                        #  "humidity", "clouds_all", "pressure", "rain_1h", "snow_1h", "temp_weekend_interaction"],
+                future_cov_cols=["hour_sin", "hour_cos", "is_weekend", "is_public_holiday"],
+                            #    "day_of_week", "season", "hour", "month", "is_school_holiday"]
             )
         else:
             # Heat dataset (default)
@@ -852,10 +852,10 @@ class NAMLSSAdapter(ModelAdapter):
                 L=L, H=H,
                 target="heat_consumption",
                 endo_cols=["heat_lag_1h", "heat_lag_24h", "heat_rolling_24h"],
-                exo_cols=["temp", "wind_speed", "dew_point", "temp_squared", "temp_wind_interaction",
-                         "humidity", "clouds_all", "pressure", "rain_1h", "snow_1h", "temp_weekend_interaction"],
-                future_cov_cols=["hour_sin", "hour_cos", "is_weekend", "is_public_holiday",
-                               "day_of_week", "season", "hour", "month", "is_school_holiday"]
+                exo_cols=["temp", "wind_speed", "dew_point", "temp_squared", "temp_wind_interaction"],
+                        #  "humidity", "clouds_all", "pressure", "rain_1h", "snow_1h", "temp_weekend_interaction"],
+                future_cov_cols=["hour_sin", "hour_cos", "is_weekend", "is_public_holiday"],
+                            #    "day_of_week", "season", "hour", "month", "is_school_holiday"]
             )
     
     def train(self, csv_path: str, train_end_str: str, val_end_str: str):
