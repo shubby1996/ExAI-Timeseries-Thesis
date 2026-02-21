@@ -31,7 +31,17 @@ endo_cols = ["heat_lag_1", "heat_roll_24"]  # Optional AR features
 exo_cols = ["temp", "wind_speed", ...]      # Historical features (past only)
 future_cov_cols = ["hour_sin", "hour_cos"] # Future-known features  
 ```
+```
+If hour_cos matters more than hour_sin, what does that mean?
+It usually means the target’s daily pattern is more aligned with the cosine axis than the sine axis.
+ - A very practical way to interpret it:
+  - hour_cos mostly separates “midnight vs noon” (because cos is +1 at 00:00, -1 at 12:00).
+  - hour_sin mostly separates “6am vs 6pm” (because sin is +1 at 06:00, -1 at 18:00).
+So if cosine is more important, your target is likely driven more by a day vs night contrast (or a pattern symmetric around midnight/noon) than by a morning vs evening contrast.
 
+Example intuition:
+If the target is generally higher during the daytime (roughly centered around noon) and lower at night, cos will often dominate. If the target is higher in the morning and lower in the evening (or vice versa), sin tends to matter more.
+```
 **Result**: 
 - One model handles any combination of columns
 - No code changes needed to add/remove features

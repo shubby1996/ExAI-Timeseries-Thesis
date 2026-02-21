@@ -27,6 +27,7 @@ models/*.pt.ckpt
 **/*.err
 **/*.log
 **/*.npy
+**/*.png
 
 # for the .csv files in data folde
 /*.csv
@@ -60,4 +61,6 @@ models/*.pt.ckpt
 !hpo/results/**/*.json
 !hpo/results/**/*.html
 !eval_out/**/*.json
-
+# !interp_out/**/*.html
+# !interp_out/**/*.json
+# !interp_out/**/*.npy

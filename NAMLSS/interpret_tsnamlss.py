@@ -6,6 +6,7 @@ import numpy as np
 import torch
 import plotly.graph_objects as go
 import plotly.express as px
+import plotly.io as pio
 from torch.utils.data import DataLoader
 from train_tsnamlss import collate_tensor_only
 import os, json
@@ -59,7 +60,7 @@ def save_horizon_profile(out_dir: Path, h, series_dict, title, ylabel, fname):
         height=500,
         width=900,
     )
-    fig.write_html(str(out_dir / fname.replace('.png', '.html')))
+    save_plotly_fig(out_dir, fig, fname)
 
 
 def save_heatmap(out_dir: Path, mat, title, xlabel, ylabel, fname):
@@ -71,7 +72,7 @@ def save_heatmap(out_dir: Path, mat, title, xlabel, ylabel, fname):
         height=600,
         width=900,
     )
-    fig.write_html(str(out_dir / fname.replace('.png', '.html')))
+    save_plotly_fig(out_dir, fig, fname)
 
 
 def save_history_forecast_with_pi(
@@ -118,7 +119,7 @@ def save_history_forecast_with_pi(
         height=500,
         width=1000,
     )
-    fig.write_html(str(out_dir / fname.replace('.png', '.html')))
+    save_plotly_fig(out_dir, fig, fname)
 
 
 def save_stackplot(out_dir: Path, h, contribs, labels, total, title, fname):
@@ -141,7 +142,25 @@ def save_stackplot(out_dir: Path, h, contribs, labels, total, title, fname):
         height=500,
         width=900,
     )
-    fig.write_html(str(out_dir / fname.replace('.png', '.html')))
+    save_plotly_fig(out_dir, fig, fname)
+
+
+def save_plotly_fig(out_dir: Path, fig: go.Figure, fname: str):
+    """
+    Save a Plotly figure as HTML and PNG (if kaleido is available).
+    `fname` can end with .png or .html; both files will be written using the same base name.
+    """
+    base = fname.replace('.png', '').replace('.html', '')
+    html_path = out_dir / (base + '.html')
+    png_path = out_dir / (base + '.png')
+    # write html
+    fig.write_html(str(html_path))
+    # try to write png via kaleido; if unavailable, log a warning
+    try:
+        # prefer a reasonable resolution
+        fig.write_image(str(png_path), scale=2)
+    except Exception as e:
+        print(f"⚠️ Could not write PNG for {base}: {e}")
 
 @torch.no_grad()
 def forward_single(model, device, sample, target):
@@ -495,6 +514,14 @@ def compute_effects_over_testset(model, test_loader, device, target, out_dir):
         fname="rawsig_importance_by_horizon_per_cov_norm_rawsig.png",
     )
 
+    # Bar plots (color-coded) for stream-level and per-covariate importances
+    plot_importance_bars(out_dir, mu_imps, "MU importances (normalized by y)", "mu_importances_norm_y.html")
+    plot_importance_bars(out_dir, mu_imps_per_cov, "MU importances per covariate (norm by y)", "mu_importances_per_cov_norm_y.html")
+    plot_importance_bars(out_dir, rs_imps_y, "RAWSIG importances (norm by y)", "rawsig_importances_norm_y.html")
+    plot_importance_bars(out_dir, rs_imps_y_per_cov, "RAWSIG importances per covariate (norm by y)", "rawsig_importances_per_cov_norm_y.html")
+    plot_importance_bars(out_dir, rs_imps_rs, "RAWSIG importances (norm by rawsig)", "rawsig_importances_norm_rawsig.html")
+    plot_importance_bars(out_dir, rs_imps_rs_per_cov, "RAWSIG importances per covariate (norm by rawsig)", "rawsig_importances_per_cov_norm_rawsig.html")
+
     print("\n=== EFFECT / IMPORTANCE (TEST SET, stream-level) ===")
     print("MU importances:", mu_imps)
     print("RAWSIG importances (norm by y):", rs_imps_y)
@@ -699,15 +726,15 @@ def plot_full_dataset_forecasts(model, df_raw, scalers, cfg, train_rng, val_rng,
     )
     
     # Save
-    fname = out_dir / "full_dataset_forecasts_1step.html"
-    fig.write_html(str(fname))
-    print(f"✓ Saved full dataset forecast plot to: {fname}")
+    # save html + png
+    save_plotly_fig(out_dir, fig, "full_dataset_forecasts_1step.png")
+    print(f"✓ Saved full dataset forecast plot to: {out_dir / 'full_dataset_forecasts_1step.html'}")
     
     # Also create a multi-step version (showing all 24 forecast horizons)
     print("\nGenerating multi-step horizon plot for test set...")
     plot_full_dataset_multistep(model, df_raw, scalers, cfg, test_rng, device, out_dir)
-    
-    return fname
+
+    return out_dir / 'full_dataset_forecasts_1step.html'
 
 
 @torch.no_grad()
@@ -811,11 +838,10 @@ def plot_full_dataset_multistep(model, df_raw, scalers, cfg, test_rng, device, o
         showlegend=True
     )
     
-    fname = out_dir / "full_dataset_forecasts_multistep_test.html"
-    fig.write_html(str(fname))
-    print(f"Saved multi-step forecast plot to: {fname}")
-    
-    return fname
+    save_plotly_fig(out_dir, fig, "full_dataset_forecasts_multistep_test.png")
+    print(f"Saved multi-step forecast plot to: {out_dir / 'full_dataset_forecasts_multistep_test.html'}")
+
+    return out_dir / 'full_dataset_forecasts_multistep_test.html'
 
 
 def save_forecast_with_pi(out_dir: Path, ts_list, y_true, y_pred, lo, hi, title, fname):
@@ -847,7 +873,7 @@ def save_forecast_with_pi(out_dir: Path, ts_list, y_true, y_pred, lo, hi, title,
         width=900,
     )
     fig.update_xaxes(tickvals=sparse_ticks, ticktext=sparse_labels)
-    fig.write_html(str(out_dir / fname.replace('.png', '.html')))
+    save_plotly_fig(out_dir, fig, fname)
 
 
 def plot_importance_by_horizon(out_dir: Path, imp_h: dict, title: str, fname: str):
@@ -870,7 +896,28 @@ def plot_importance_by_horizon(out_dir: Path, imp_h: dict, title: str, fname: st
     )
     fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='lightgray')
     fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='lightgray')
-    fig.write_html(str(out_dir / fname.replace('.png', '.html')))
+    save_plotly_fig(out_dir, fig, fname.replace('.png', '.html'))
+
+
+def plot_importance_bars(out_dir: Path, imp: dict, title: str, fname: str, horizontal: bool = True):
+    # imp: mapping key->scalar importance (0..1)
+    keys = list(imp.keys())
+    vals = np.array([float(imp[k]) for k in keys], dtype=np.float64)
+    # sort descending
+    order = np.argsort(-vals)
+    keys_ord = [keys[i] for i in order]
+    vals_ord = vals[order]
+
+    if horizontal:
+        fig = go.Figure(go.Bar(x=vals_ord, y=keys_ord, orientation='h',
+                               marker=dict(color=vals_ord, colorscale='Viridis', showscale=True)))
+        fig.update_layout(xaxis_title='Importance', yaxis_title='', title=title, height=600, width=900)
+    else:
+        fig = go.Figure(go.Bar(x=keys_ord, y=vals_ord,
+                               marker=dict(color=vals_ord, colorscale='Viridis', showscale=True)))
+        fig.update_layout(xaxis_title='', yaxis_title='Importance', title=title, height=600, width=900)
+
+    save_plotly_fig(out_dir, fig, fname.replace('.png', '.html'))
 
 
 def effect_global(term: torch.Tensor, denom: torch.Tensor, eps: float = 1e-12) -> float:
@@ -1148,7 +1195,7 @@ def main():
         height=500,
         width=900,
     )
-    fig.write_html(str(out_dir / f"zscore_sample{sample_idx}.html"))
+    save_plotly_fig(out_dir, fig, f"zscore_sample{sample_idx}.png")
 
 # ===============================================================================
     h = np.arange(1, cfg.H + 1)
